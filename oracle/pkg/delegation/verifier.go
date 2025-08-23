@@ -78,71 +78,87 @@ func (v *Verifier) makeRPCCall(request RPCRequest) (interface{}, error) {
 
 // getActiveEra gets the current active era from Polkadot
 func (v *Verifier) getActiveEra() (interface{}, error) {
-	// For local development node, we'll simulate the active era
-	// In a real implementation, you would query the actual staking era
-	log.Printf("📅 Simulating active era for testing purposes")
-	return map[string]interface{}{
-		"index": 1,
-		"start": "2025-08-07T03:25:00Z",
-	}, nil
+	log.Printf("📅 Querying active era from Polkadot")
+
+	// Query the ActiveEra storage value
+	request := RPCRequest{
+		JSONRPC: "2.0",
+		Method:  "state_getStorage",
+		Params: []interface{}{
+			"0x5f3e4907f716ac89b6347d15ececedca3ed14b45ed20d054f05e37e2542cfe70",
+		},
+		ID: 1,
+	}
+
+	result, err := v.makeRPCCall(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active era: %w", err)
+	}
+
+	log.Printf("📅 Active era retrieved: %v", result)
+	return result, nil
 }
 
 // checkIfNominated checks if a nominator has nominated a specific validator
 func (v *Verifier) checkIfNominated(nominatorAddress, validatorAddress string) (bool, error) {
-	log.Printf("Checking if nominator %s has nominated validator %s", nominatorAddress, validatorAddress)
+	log.Printf("🔍 Checking if nominator %s has nominated validator %s", nominatorAddress, validatorAddress)
 
-	// For local Substrate node, we'll use a simpler approach
-	// First, let's try to get the chain head to ensure the node is responding
-	headRequest := RPCRequest{
-		JSONRPC: "2.0",
-		Method:  "chain_getHeader",
-		Params:  []interface{}{},
-		ID:      1,
-	}
-
-	headResult, err := v.makeRPCCall(headRequest)
-	if err != nil {
-		log.Printf("Failed to get chain head: %v", err)
-		// For demo purposes, let's simulate a successful check for known addresses
-		if nominatorAddress == "12ztGE9cY2p7kPJFpfvMrL6NsCUeqoiaBY3jciMqYFuFNJ2o" &&
-			validatorAddress == "12GTt3pfM3SjTU6UL6dQ3SMgMSvdw94PnRoF6osU6hPvxbUZ" {
-			log.Printf("Found known delegation pair, returning true")
-			return true, nil
-		}
-		return false, fmt.Errorf("failed to connect to local node: %w", err)
-	}
-
-	log.Printf("Chain head retrieved: %v", headResult)
-
-	// For the local development node, we'll simulate delegation checks
+	// For now, let's use a simpler approach and check if the addresses are valid
 	// In a real implementation, you would query the actual staking storage
-	// For now, let's accept any request as valid for testing purposes
-	log.Printf("✅ Accepting delegation for testing purposes")
+	// This is a placeholder that validates the address format
+
+	// Check if addresses are valid (basic validation)
+	if len(nominatorAddress) < 10 || len(validatorAddress) < 10 {
+		log.Printf("❌ Invalid address format")
+		return false, fmt.Errorf("invalid address format")
+	}
+
+	// For testing purposes, we'll simulate a real check
+	// In production, you would:
+	// 1. Query the Staking.Nominators storage map
+	// 2. Decode the nomination data
+	// 3. Check if the validator is in the targets list
+
+	log.Printf("✅ Addresses appear valid, checking nomination status")
+
+	// Simulate a real check - in production this would be an actual storage query
+	// For now, we'll return true for any valid-looking addresses
+	// This should be replaced with actual storage queries
+	log.Printf("⚠️  Using simplified check - replace with actual storage queries in production")
 	return true, nil
 }
 
 // checkIfActive checks if the nomination is currently active
 func (v *Verifier) checkIfActive(nominatorAddress, validatorAddress string) (bool, error) {
-	log.Printf("Checking if nomination is currently active...")
+	log.Printf("🔍 Checking if nomination is currently active...")
 
-	// For local development node, we'll simulate active nominations
-	// In a real implementation, you would query the actual staking state
-	log.Printf("✅ Simulating active nomination for testing purposes")
+	// Query the current era to check if the nomination is active
+	// In a real implementation, you would check the current era against the nomination era
+	activeEra, err := v.getActiveEra()
+	if err != nil {
+		log.Printf("❌ Failed to get active era for activity check: %v", err)
+		return false, fmt.Errorf("failed to get active era: %w", err)
+	}
+
+	log.Printf("📅 Current active era: %v", activeEra)
+
+	// For now, we'll assume the nomination is active if it exists
+	// In a real implementation, you'd check the nomination era and other factors
+	log.Printf("✅ Assuming nomination is active (simplified check)")
 	return true, nil
 }
 
 // VerifyDelegation checks if a nominator has delegated to a validator
 func (v *Verifier) VerifyDelegation(nominatorAddress, validatorAddress string) (bool, error) {
-	log.Printf("Verifying delegation: %s -> %s", nominatorAddress, validatorAddress)
+	log.Printf("🔍 Verifying delegation: %s -> %s", nominatorAddress, validatorAddress)
 
 	// Get the current active era
 	activeEra, err := v.getActiveEra()
 	if err != nil {
-		log.Printf("Failed to get active era: %v", err)
-		// For demo purposes, continue with simulation
-	} else {
-		log.Printf("Current active era: %v", activeEra)
+		log.Printf("❌ Failed to get active era: %v", err)
+		return false, fmt.Errorf("failed to get active era: %w", err)
 	}
+	log.Printf("📅 Current active era: %v", activeEra)
 
 	// Check if the nominator has nominated the validator
 	isNominated, err := v.checkIfNominated(nominatorAddress, validatorAddress)
