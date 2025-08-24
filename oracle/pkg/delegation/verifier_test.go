@@ -44,8 +44,8 @@ func TestVerifyDelegation_RealRPC(t *testing.T) {
 	verifier := NewVerifier(rpcURL)
 	log.Printf("✅ Verifier created successfully")
 
-	// Test with known addresses that should work in simulation mode
-	nominator := "12ztGE9cY2p7kPJFpfvMrL6NsCUeqoiaBY3jciMqYFuFNJ2o"
+	// Test with the specific extrinsic address provided
+	nominator := "0x73479ae11533f4e717e3f7b45a8f54d95021785395df62abbe68ff9af32e40cc"
 	validator := "12GTt3pfM3SjTU6UL6dQ3SMgMSvdw94PnRoF6osU6hPvxbUZ"
 
 	log.Printf("🔍 Testing delegation verification:")
