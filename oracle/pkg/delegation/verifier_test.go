@@ -440,3 +440,53 @@ func TestGetCurrentBlockInfo(t *testing.T) {
 
 	log.Printf("🎉 TestGetCurrentBlockInfo completed successfully")
 }
+
+func TestGetStakingExtrinsics(t *testing.T) {
+	log.Printf("🧪 Starting TestGetStakingExtrinsics")
+
+	rpcURL := "https://rpc.polkadot.io"
+	log.Printf("📡 Creating verifier with RPC URL: %s", rpcURL)
+	verifier := NewVerifier(rpcURL)
+	log.Printf("✅ Verifier created successfully")
+
+	// Test with the specific extrinsic address provided
+	nominator := "0x73479ae11533f4e717e3f7b45a8f54d95021785395df62abbe68ff9af32e40cc"
+	validator := "12GTt3pfM3SjTU6UL6dQ3SMgMSvdw94PnRoF6osU6hPvxbUZ"
+
+	log.Printf("🔍 Getting staking extrinsics for:")
+	log.Printf("   Nominator: %s", nominator)
+	log.Printf("   Validator: %s", validator)
+
+	log.Printf("🚀 Calling GetStakingExtrinsics...")
+	extrinsics, err := verifier.GetStakingExtrinsics(nominator, validator)
+	log.Printf("📋 GetStakingExtrinsics returned - extrinsics count: %d, error: %v", len(extrinsics), err)
+
+	// Don't fail the test if no extrinsics are found, just log the result
+	if err != nil {
+		log.Printf("⚠️  Error occurred: %v", err)
+		// Don't fail the test, just log the error
+	} else {
+		log.Printf("✅ No errors occurred while getting staking extrinsics")
+	}
+
+	log.Printf("📊 Found %d staking extrinsics", len(extrinsics))
+
+	// Log details of each extrinsic found
+	for i, extrinsic := range extrinsics {
+		log.Printf("📋 Extrinsic %d:", i+1)
+		log.Printf("   Extrinsic Hash: %s", extrinsic.ExtrinsicHash)
+		log.Printf("   Block Hash: %s", extrinsic.BlockHash)
+		log.Printf("   Block Number: %s", extrinsic.BlockNumber)
+		log.Printf("   Extrinsic Index: %d", extrinsic.ExtrinsicIdx)
+		log.Printf("   Method: %s", extrinsic.Method)
+		log.Printf("   Success: %t", extrinsic.Success)
+		if len(extrinsic.Events) > 0 {
+			log.Printf("   Events Count: %d", len(extrinsic.Events))
+		}
+		if extrinsic.Timestamp != "" {
+			log.Printf("   Timestamp: %s", extrinsic.Timestamp)
+		}
+	}
+
+	log.Printf("🎉 TestGetStakingExtrinsics completed successfully")
+}

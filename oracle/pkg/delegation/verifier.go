@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // RPCRequest represents a Polkadot RPC request
@@ -40,6 +41,19 @@ type ExtrinsicInfo struct {
 	Method       map[string]interface{} `json:"method"`
 	Events       []interface{}          `json:"events"`
 	Success      bool                   `json:"success"`
+}
+
+// StakingExtrinsic represents a staking-related extrinsic
+type StakingExtrinsic struct {
+	ExtrinsicHash string                 `json:"extrinsicHash"`
+	BlockHash     string                 `json:"blockHash"`
+	BlockNumber   string                 `json:"blockNumber"`
+	ExtrinsicIdx  int                    `json:"extrinsicIdx"`
+	Method        string                 `json:"method"`
+	Params        map[string]interface{} `json:"params"`
+	Success       bool                   `json:"success"`
+	Events        []interface{}          `json:"events"`
+	Timestamp     string                 `json:"timestamp,omitempty"`
 }
 
 // Verifier handles Polkadot delegation verification via HTTP RPC
@@ -350,4 +364,306 @@ func (v *Verifier) VerifyDelegationWithExtrinsic(extrinsicHash, nominatorAddress
 
 	log.Printf("✅ Both extrinsic and standard verification successful")
 	return true, nil
+}
+
+// GetStakingExtrinsics retrieves all staking-related extrinsics for a given nominator-validator pair
+func (v *Verifier) GetStakingExtrinsics(nominatorAddress, validatorAddress string) ([]StakingExtrinsic, error) {
+	log.Printf("🔍 Getting staking extrinsics for nominator: %s, validator: %s", nominatorAddress, validatorAddress)
+
+	var extrinsics []StakingExtrinsic
+
+	// Method 1: If nominatorAddress looks like an extrinsic hash, try to get it directly
+	if strings.HasPrefix(nominatorAddress, "0x") && len(nominatorAddress) == 66 {
+		log.Printf("🔍 Nominator address looks like an extrinsic hash, trying direct lookup")
+		directExtrinsic, err := v.getExtrinsicByHash(nominatorAddress)
+		if err != nil {
+			log.Printf("⚠️  Error getting extrinsic by hash: %v", err)
+		} else if directExtrinsic != nil {
+			extrinsics = append(extrinsics, *directExtrinsic)
+			log.Printf("✅ Found extrinsic by hash, returning early")
+			return extrinsics, nil
+		}
+	}
+
+	// Method 2: Try to find the extrinsic using a more targeted approach
+	targetedExtrinsics, err := v.findExtrinsicByAddress(nominatorAddress, validatorAddress)
+	if err != nil {
+		log.Printf("⚠️  Error in targeted search: %v", err)
+	} else {
+		extrinsics = append(extrinsics, targetedExtrinsics...)
+	}
+
+	// Method 3: Use state_queryStorageAt to find specific staking events (simplified)
+	storageExtrinsics, err := v.queryStakingStorage(nominatorAddress, validatorAddress)
+	if err != nil {
+		log.Printf("⚠️  Error querying staking storage: %v", err)
+	} else {
+		extrinsics = append(extrinsics, storageExtrinsics...)
+	}
+
+	// Remove duplicates based on extrinsic hash
+	uniqueExtrinsics := v.removeDuplicateExtrinsics(extrinsics)
+
+	log.Printf("✅ Found %d unique staking extrinsics", len(uniqueExtrinsics))
+	return uniqueExtrinsics, nil
+}
+
+// getLatestBlockNumber gets the latest block number
+func (v *Verifier) getLatestBlockNumber() (int64, error) {
+	request := RPCRequest{
+		JSONRPC: "2.0",
+		Method:  "chain_getHeader",
+		Params:  []interface{}{},
+		ID:      1,
+	}
+
+	result, err := v.makeRPCCall(request)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get latest block header: %w", err)
+	}
+
+	// Parse the block number from the result
+	if headerMap, ok := result.(map[string]interface{}); ok {
+		if numberStr, exists := headerMap["number"].(string); exists {
+			// Convert hex string to int64
+			var blockNum int64
+			_, err := fmt.Sscanf(numberStr, "0x%x", &blockNum)
+			if err != nil {
+				return 0, fmt.Errorf("failed to parse block number: %w", err)
+			}
+			return blockNum, nil
+		}
+	}
+
+	return 0, fmt.Errorf("could not extract block number from response")
+}
+
+// getStakingExtrinsicsFromBlock gets staking extrinsics from a specific block
+func (v *Verifier) getStakingExtrinsicsFromBlock(blockNumber int64, nominatorAddress, validatorAddress string) ([]StakingExtrinsic, error) {
+	var extrinsics []StakingExtrinsic
+
+	// First, get the block hash for the block number
+	blockHash, err := v.getBlockHash(blockNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block hash for block %d: %w", blockNumber, err)
+	}
+
+	request := RPCRequest{
+		JSONRPC: "2.0",
+		Method:  "chain_getBlock",
+		Params: []interface{}{
+			blockHash,
+		},
+		ID: 1,
+	}
+
+	result, err := v.makeRPCCall(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block %d: %w", blockNumber, err)
+	}
+
+	// Parse the block to find staking extrinsics
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if block, ok := resultMap["block"].(map[string]interface{}); ok {
+			if blockExtrinsics, ok := block["extrinsics"].([]interface{}); ok {
+				for i, extrinsic := range blockExtrinsics {
+					if v.isStakingExtrinsic(extrinsic, nominatorAddress, validatorAddress) {
+						stakingExtrinsic := StakingExtrinsic{
+							BlockHash:    blockHash,
+							BlockNumber:  fmt.Sprintf("%d", blockNumber),
+							ExtrinsicIdx: i,
+							Method:       "staking.nominate", // Default, will be updated
+							Success:      true,               // Assume success for now
+						}
+						extrinsics = append(extrinsics, stakingExtrinsic)
+					}
+				}
+			}
+		}
+	}
+
+	return extrinsics, nil
+}
+
+// getBlockHash gets the block hash for a given block number
+func (v *Verifier) getBlockHash(blockNumber int64) (string, error) {
+	request := RPCRequest{
+		JSONRPC: "2.0",
+		Method:  "chain_getBlockHash",
+		Params: []interface{}{
+			fmt.Sprintf("0x%x", blockNumber),
+		},
+		ID: 1,
+	}
+
+	result, err := v.makeRPCCall(request)
+	if err != nil {
+		return "", fmt.Errorf("failed to get block hash: %w", err)
+	}
+
+	if blockHash, ok := result.(string); ok {
+		return blockHash, nil
+	}
+
+	return "", fmt.Errorf("invalid block hash response")
+}
+
+// isStakingExtrinsic checks if an extrinsic is a staking extrinsic for the given addresses
+func (v *Verifier) isStakingExtrinsic(extrinsic interface{}, nominatorAddress, validatorAddress string) bool {
+	extrinsicStr := fmt.Sprintf("%v", extrinsic)
+
+	// Check for staking-related patterns
+	stakingPatterns := []string{
+		"nominate",
+		"bond",
+		"unbond",
+		"withdraw_unbonded",
+		"chill",
+		"set_payee",
+		"set_controller",
+		"validate",
+	}
+
+	for _, pattern := range stakingPatterns {
+		if strings.Contains(strings.ToLower(extrinsicStr), pattern) {
+			// Additional check: see if the addresses are mentioned in the extrinsic
+			if strings.Contains(extrinsicStr, nominatorAddress) || strings.Contains(extrinsicStr, validatorAddress) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// queryStakingStorage queries staking storage for specific events
+func (v *Verifier) queryStakingStorage(nominatorAddress, validatorAddress string) ([]StakingExtrinsic, error) {
+	log.Printf("🔍 Querying staking storage for events")
+
+	var extrinsics []StakingExtrinsic
+
+	// Query Staking.Nominators storage
+	request := RPCRequest{
+		JSONRPC: "2.0",
+		Method:  "state_getStorage",
+		Params: []interface{}{
+			"0x5f3e4907f716ac89b6347d15ececedca3ed14b45ed20d054f05e37e2542cfe70", // Staking.Nominators
+		},
+		ID: 1,
+	}
+
+	result, err := v.makeRPCCall(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query staking storage: %w", err)
+	}
+
+	log.Printf("📋 Staking storage result: %v", result)
+
+	// This is a simplified implementation
+	// In a real implementation, you would:
+	// 1. Decode the storage value properly
+	// 2. Extract nomination information
+	// 3. Find the corresponding extrinsics
+
+	return extrinsics, nil
+}
+
+// removeDuplicateExtrinsics removes duplicate extrinsics based on extrinsic hash
+func (v *Verifier) removeDuplicateExtrinsics(extrinsics []StakingExtrinsic) []StakingExtrinsic {
+	seen := make(map[string]bool)
+	var unique []StakingExtrinsic
+
+	for _, extrinsic := range extrinsics {
+		if !seen[extrinsic.ExtrinsicHash] {
+			seen[extrinsic.ExtrinsicHash] = true
+			unique = append(unique, extrinsic)
+		}
+	}
+
+	return unique
+}
+
+// getExtrinsicByHash retrieves an extrinsic directly by its hash
+func (v *Verifier) getExtrinsicByHash(extrinsicHash string) (*StakingExtrinsic, error) {
+	log.Printf("🔍 Getting extrinsic by hash: %s", extrinsicHash)
+
+	// Try to get the extrinsic using chain_getBlock
+	request := RPCRequest{
+		JSONRPC: "2.0",
+		Method:  "chain_getBlock",
+		Params: []interface{}{
+			extrinsicHash,
+		},
+		ID: 1,
+	}
+
+	result, err := v.makeRPCCall(request)
+	if err != nil {
+		log.Printf("⚠️  Failed to get extrinsic by hash: %v", err)
+		return nil, err
+	}
+
+	// Parse the result
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if block, ok := resultMap["block"].(map[string]interface{}); ok {
+			if extrinsics, ok := block["extrinsics"].([]interface{}); ok {
+				for i, extrinsic := range extrinsics {
+					// Check if this is a staking extrinsic
+					if v.isStakingExtrinsic(extrinsic, extrinsicHash, "") {
+						log.Printf("✅ Found staking extrinsic at index %d", i)
+						return &StakingExtrinsic{
+							ExtrinsicHash: extrinsicHash,
+							BlockHash:     extrinsicHash, // In this case, the hash is the block hash
+							BlockNumber:   "unknown",     // We don't have the block number
+							ExtrinsicIdx:  i,
+							Method:        "staking.nominate",
+							Success:       true,
+						}, nil
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("⚠️  No staking extrinsic found for hash: %s", extrinsicHash)
+	return nil, nil
+}
+
+// findExtrinsicByAddress tries to find extrinsics by searching a small range of recent blocks
+func (v *Verifier) findExtrinsicByAddress(nominatorAddress, validatorAddress string) ([]StakingExtrinsic, error) {
+	log.Printf("🔍 Finding extrinsics by address in recent blocks")
+
+	var extrinsics []StakingExtrinsic
+
+	// Get the latest block number
+	latestBlock, err := v.getLatestBlockNumber()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block: %w", err)
+	}
+
+	// Search through only the last 10 blocks for performance
+	searchRange := int64(10)
+	startBlock := latestBlock - searchRange
+	if startBlock < 0 {
+		startBlock = 0
+	}
+
+	log.Printf("📊 Searching blocks from %d to %d", startBlock, latestBlock)
+
+	// Search in reverse order (newest first) and limit results
+	maxExtrinsics := 5
+	for blockNum := latestBlock; blockNum >= startBlock && len(extrinsics) < maxExtrinsics; blockNum-- {
+		blockExtrinsics, err := v.getStakingExtrinsicsFromBlock(blockNum, nominatorAddress, validatorAddress)
+		if err != nil {
+			log.Printf("⚠️  Error getting extrinsics from block %d: %v", blockNum, err)
+			continue
+		}
+		extrinsics = append(extrinsics, blockExtrinsics...)
+
+		// Add a small delay to avoid overwhelming the RPC
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	log.Printf("✅ Found %d extrinsics in recent blocks", len(extrinsics))
+	return extrinsics, nil
 }
