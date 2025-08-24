@@ -16,8 +16,8 @@ contract OracleVerifiedDelegation {
 
     constructor() {
         // Ethereum address derived from public key:
-        // 048bca88da17bef374aaade8b23c6f2820d1e1a07463eeff55b86d7c81d6d4eac023b9920ad0a6e9240c9cc006d15319a00bd15a86c290a2900ffee26fd53c0c4f
-        oracleAddress = 0xC4Ba2d2F1b3d93D77211cA9Ef5FF1FDD7cA9389E;
+        // 04ae9ca2d5982331497abc86cb350e6254b7cb8411fe6bcb813cdb07104ea88fb35bd3de3ec967fd4ecb4a4a6c117b827d8d54acc72d277e4a6aa695ba253d4f76
+        oracleAddress = 0x2bb632baa1bca1f51b7f4b2d02bc9bc07d5cddfd;
     }
 
     function submitMessage(
