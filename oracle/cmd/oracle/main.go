@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"signing-oracle/pkg/delegation"
+	"oracle/pkg/delegation"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/mux"
