@@ -105,7 +105,7 @@ func VerifyHandler(so *signingoracle.SigningOracle) http.HandlerFunc {
 			ValidatorAddress: req.ValidatorAddress,
 			NominatorAddress: req.NominatorAddress,
 			Msg:              req.Msg,
-			Signature:        signature,
+			Signature:        "0x" + signature,
 		}
 
 		// Return the response
