@@ -1,68 +1,46 @@
-#!/bin/bash
+echo "=== Ethereum Address (raw + checksum) ==="
+if ! ETH_INFO=$(
+  PUB_UNCOMP_HEX="$PUB_UNCOMP_HEX" python3 - <<'PY'
+import os, binascii, sys
+from Crypto.Hash import keccak  # requires: pip install pycryptodome
 
-echo "=== Generating ECDSA Key Pair ==="
-echo ""
+pub_hex = os.environ.get("PUB_UNCOMP_HEX","").strip()
+if not pub_hex:
+    print("ERROR: Missing PUB_UNCOMP_HEX", file=sys.stderr); sys.exit(1)
+if not pub_hex.startswith("04"):
+    print("ERROR: Public key is not uncompressed (missing 04 prefix)", file=sys.stderr); sys.exit(1)
 
-# Generate private key in PEM format
-openssl ecparam -genkey -name secp256k1 -out private_key.pem
+# drop 0x04 and keccak256 the raw X||Y
+xy_hex = pub_hex[2:]
+data = binascii.unhexlify(xy_hex)
 
-# Extract private key in hex format using a more reliable method
-echo "=== Private Key (Hex Format) ==="
-PRIVATE_KEY_HEX=$(openssl ec -in private_key.pem -text -noout | sed -n '/priv:/,/pub:/p' | grep -v "priv:" | grep -v "pub:" | tr -d ':' | tr -d ' ' | tr -d '\n')
-echo $PRIVATE_KEY_HEX
-echo ""
+k = keccak.new(digest_bits=256); k.update(data)
+digest = k.digest()
+addr_bytes = digest[-20:]
+addr_hex = "0x" + binascii.hexlify(addr_bytes).decode()
 
-# Extract public key in hex format
-echo "=== Public Key (Hex Format) ==="
-PUBLIC_KEY_HEX=$(openssl ec -in private_key.pem -text -noout | sed -n '/pub:/,/ASN1/p' | grep -v "pub:" | grep -v "ASN1" | tr -d ':' | tr -d ' ' | tr -d '\n')
-echo $PUBLIC_KEY_HEX
-echo ""
+def keccak256_bytes(b: bytes) -> bytes:
+    k2 = keccak.new(digest_bits=256); k2.update(b); return k2.digest()
 
-# Compute Ethereum address from public key
-echo "=== Ethereum Address ==="
-# Remove the '04' prefix from the public key (uncompressed format)
-PUBLIC_KEY_WITHOUT_PREFIX=$(echo $PUBLIC_KEY_HEX | sed 's/^04//')
-# Take the last 40 characters (20 bytes) of the Keccak-256 hash
-ETHEREUM_ADDRESS=$(echo -n $PUBLIC_KEY_WITHOUT_PREFIX | xxd -r -p | openssl dgst -sha3-256 -binary | tail -c 20 | xxd -p | tr -d '\n')
-# Add '0x' prefix and convert to checksum address
-ETHEREUM_ADDRESS_FULL="0x$ETHEREUM_ADDRESS"
-echo $ETHEREUM_ADDRESS_FULL
-echo ""
+# EIP-55 checksum
+def to_checksum_address(addr: str) -> str:
+    s = addr.lower().replace("0x","")
+    kh = keccak256_bytes(s.encode()).hex()
+    out = "0x"
+    for i, ch in enumerate(s):
+        out += ch.upper() if ch.isalpha() and int(kh[i], 16) >= 8 else ch
+    return out
 
-# Create .env file
-echo "=== Creating .env file ==="
-cat > .env << EOF
-# Signing Oracle Environment Variables
-PRIVATE_KEY=$PRIVATE_KEY_HEX
-PUBLIC_KEY=$PUBLIC_KEY_HEX
-ETHEREUM_ADDRESS=$ETHEREUM_ADDRESS_FULL
-POLKADOT_RPC_URL=https://rpc.polkadot.io
-PORT=4000
-EOF
+print(addr_hex)
+print(to_checksum_address(addr_hex))
+PY
+); then
+  echo "Failed to compute address. See error above."
+  exit 1
+fi
 
-echo "Created .env file with the following contents:"
+ETH_RAW=$(echo "$ETH_INFO" | sed -n '1p')
+ETH_CHECKSUM=$(echo "$ETH_INFO" | sed -n '2p')
+echo "Original:    $ETH_RAW"
+echo "Checksummed: $ETH_CHECKSUM"
 echo ""
-cat .env
-echo ""
-
-echo "=== Usage Instructions ==="
-echo "1. The .env file has been created with your private key"
-echo ""
-echo "2. Run the signing oracle:"
-echo "   go run main.go"
-echo ""
-echo "3. The oracle will be available at:"
-echo "   http://localhost:4000"
-echo ""
-echo "4. Get oracle info:"
-echo "   curl http://localhost:4000/info"
-echo ""
-echo "=== Files Created ==="
-echo "- private_key.pem (PEM format)"
-echo "- public_key.pem (PEM format)"
-echo "- .env (environment variables)"
-echo ""
-echo "=== Security Note ==="
-echo "Keep your private key secure and never share it!"
-echo "The private key is stored in private_key.pem and .env"
-echo "Make sure to add .env to your .gitignore file!" s
