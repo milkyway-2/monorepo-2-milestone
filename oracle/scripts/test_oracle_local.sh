@@ -19,7 +19,7 @@ curl -s -X POST -H "Content-Type: application/json" \
   -d '{
     "validator_address": "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY",
     "nominator_address": "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU",
-    "msg": "Hello from local Substrate node!"
+    "msg": "msg"
   }' \
   http://localhost:4001/verify | jq .
 echo ""
