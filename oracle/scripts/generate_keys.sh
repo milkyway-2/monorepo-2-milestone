@@ -65,8 +65,8 @@ echo "Checksummed: $ETH_CHECKSUM"
 echo ""
 
 # Save the address to a file for easy access
-echo "$ETH_CHECKSUM" > keys/ethereum_address.txt
-echo "Ethereum address saved to: keys/ethereum_address.txt"
+# echo "$ETH_CHECKSUM" > keys/ethereum_address.txt
+# echo "Ethereum address saved to: keys/ethereum_address.txt"
 
 # Extract private key in hex format
 echo "Extracting private key in hex format..."
