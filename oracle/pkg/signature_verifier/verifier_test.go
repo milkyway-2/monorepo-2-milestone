@@ -280,6 +280,35 @@ func TestCreateValidSignature(t *testing.T) {
 	log.Printf("🎉 This signature would work with the smart contract!")
 }
 
+// TestDebugPrivateKey helps debug the private key issue
+func TestDebugPrivateKey(t *testing.T) {
+	log.Printf("🔍 Debugging private key issue")
+
+	// The oracle address that the contract expects
+	expectedOracleAddress := "0x45D1960EB3E945e148D2828a2dC0CbBb52a29609"
+
+	// The address you're currently getting from your environment
+	currentAddress := "0x88661e841B18779E0610926C994a75Fe5106336a"
+
+	log.Printf("📋 Contract expects oracle address: %s", expectedOracleAddress)
+	log.Printf("📋 Your current private key generates address: %s", currentAddress)
+
+	if expectedOracleAddress == currentAddress {
+		log.Printf("✅ Addresses match! Your private key is correct.")
+	} else {
+		log.Printf("❌ Addresses don't match!")
+		log.Printf("❌ You need the private key that generates address: %s", expectedOracleAddress)
+		log.Printf("❌ But your current private key generates address: %s", currentAddress)
+		log.Printf("")
+		log.Printf("🔧 To fix this, you need to:")
+		log.Printf("   1. Find the private key for address: %s", expectedOracleAddress)
+		log.Printf("   2. OR update your contract to use address: %s", currentAddress)
+		log.Printf("")
+		log.Printf("💡 If you have the private key for %s, use that instead", expectedOracleAddress)
+		log.Printf("💡 If you want to use your current private key, update the contract to use %s", currentAddress)
+	}
+}
+
 // TestNewFailingSignature analyzes the latest failing transaction signature
 func TestNewFailingSignature(t *testing.T) {
 	log.Printf("🧪 Analyzing new failing signature from latest transaction")
