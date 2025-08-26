@@ -275,6 +275,10 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         contractAddress = CONTRACT_CONFIG.SEPOLIA_CONTRACT_ADDRESS;
         networkName = getNetworkName(finalChainId);
         nativeSymbol = 'ETH';
+      } else if (finalChainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+        contractAddress = CONTRACT_CONFIG.PASEO_CONTRACT_ADDRESS;
+        networkName = getNetworkName(finalChainId);
+        nativeSymbol = 'PAS';
       } else {
         throw new Error('Unsupported EVM network. Please switch to a supported network.');
       }
@@ -300,6 +304,9 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
           // Abort on Sepolia if revert reason is present
           throw new Error(`Preflight failed: ${msg}`);
+        } else if (finalChainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+          // Abort on Paseo if revert reason is present
+          throw new Error(`Preflight failed: ${msg}`);
         } else {
           console.warn('Preflight eth_call failed on this network (continuing):', msg);
         }
@@ -312,6 +319,8 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         gasLimit = await contract.estimateGas[methodName](...methodArgs);
       } catch (e) {
         if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
+          throw new Error('Gas estimation failed. The contract may be reverting (e.g., Unauthorized).');
+        } else if (finalChainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
           throw new Error('Gas estimation failed. The contract may be reverting (e.g., Unauthorized).');
         }
         console.warn('estimateGas failed on this network, using default gas limit');

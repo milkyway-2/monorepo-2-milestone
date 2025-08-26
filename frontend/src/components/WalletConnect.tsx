@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { web3Enable, web3Accounts } from '@polkadot/extension-dapp';
-import Web3 from 'web3';
 import BigNumber from 'bignumber.js';
+import { CONTRACT_CONFIG } from '../config/contracts';
+import { getWallets } from '@talismn/connect-wallets';
 
 interface WalletState {
   isConnected: boolean;
   address: string | null;
   chainId: string | null;
   balance: string | null;
-  walletType: 'polkadot' | 'talisman' | 'metamask' | null;
+  walletType: 'metamask' | 'talisman' | null;
 }
 
 interface WalletConnectProps {
@@ -25,8 +25,6 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
   });
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const WESTEND_NETWORK_NAME = 'Testnet';
 
   useEffect(() => {
     console.log('🔄 useEffect triggered - checking wallet connection on component mount');
@@ -47,13 +45,14 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     }
   }, [walletState.isConnected, walletState.address, onWalletStateChange]);
 
-  // EVM RPC + token decimals
-  const WESTEND_ASSET_HUB_RPC = 'https://westend-asset-hub-eth-rpc.polkadot.io';
-  const WND_DECIMALS = 12;
   // Sepolia (Ethereum testnet) RPC + token decimals
   const SEPOLIA_RPC = 'https://rpc.sepolia.org';
   const SEPOLIA_DECIMALS = 18;
   const SEPOLIA_CHAIN_ID = '0xaa36a7';
+  
+  // Paseo EVM RPC + token decimals
+  const PASEO_RPC = 'https://paseo-asset-hub-eth-rpc.polkadot.io';
+  const PASEO_DECIMALS = 18;
 
   // Fetch balance from an EVM RPC
   const fetchEvmBalance = async (address: string, rpcUrl: string, decimals: number): Promise<string | null> => {
@@ -91,7 +90,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     console.log('🔍 Starting wallet connection check...');
     const startTime = Date.now();
     
-    // Check MetaMask (EVM)
+    // Check MetaMask (EVM) - only for Sepolia
     if (typeof window.ethereum !== 'undefined') {
       try {
         console.log('📡 Checking MetaMask connection...');
@@ -99,86 +98,50 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
         if (accounts.length > 0) {
           const chainId = await window.ethereum.request({ method: 'eth_chainId' });
           console.log('✅ MetaMask connected with chainId:', chainId);
-          await updateWalletState(accounts[0], chainId, 'metamask');
+          // Only connect if on Sepolia
+          if (chainId === SEPOLIA_CHAIN_ID) {
+            await updateWalletState(accounts[0], chainId, 'metamask');
+          }
         }
       } catch (err) {
         console.error('❌ Error checking MetaMask connection:', err);
       }
     }
-
-    // Check Talisman (EVM mode)
-    console.log('🔍 Checking for Talisman wallet...');
-    console.log('📋 window.talisman:', typeof window.talisman);
-    console.log('📋 window.ethereum (Talisman):', typeof window.ethereum);
-    console.log('📋 window.talismanEth:', typeof (window as any).talismanEth);
     
-    // Talisman can inject multiple objects
-    if (typeof window.talisman !== 'undefined') {
-      try {
-        console.log('📡 Checking Talisman EVM connection...');
-        const accounts = await window.talisman.getAccounts();
-        if (accounts.length > 0) {
-          console.log('✅ Talisman connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0].address, '0x190f1b45', 'talisman');
-        }
-      } catch (err) {
-        console.error('❌ Error checking Talisman connection:', err);
-      }
-    } else if (typeof window.ethereum !== 'undefined' && window.ethereum.isTalisman) {
-      try {
-        console.log('📡 Checking Talisman via ethereum object...');
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          console.log('✅ Talisman (via ethereum) connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-        }
-      } catch (err) {
-        console.error('❌ Error checking Talisman via ethereum:', err);
-      }
-    } else if (typeof (window as any).talismanEth !== 'undefined') {
-      try {
-        console.log('📡 Checking Talisman via talismanEth object...');
-        const accounts = await (window as any).talismanEth.send('eth_accounts');
-        if (accounts && accounts.length > 0) {
-          console.log('✅ Talisman (via talismanEth) connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-        }
-      } catch (err) {
-        console.error('❌ Error checking Talisman via talismanEth:', err);
-      }
-    }
-
-    // Check Polkadot Extension (for native Polkadot)
+    // Check Talisman using official SDK
     try {
-      console.log('📡 Attempting to enable Polkadot extensions...');
-      const extensions = await web3Enable('Validator Dashboard');
-      console.log('✅ Extensions enabled:', extensions.length, 'found');
-      console.log('📋 Extension names:', extensions.map(ext => ext.name));
+      console.log('🔍 Checking for Talisman wallet using official SDK...');
+      const installedWallets = getWallets().filter((wallet) => wallet.installed);
+      console.log('📋 Installed wallets:', installedWallets.map(w => w.extensionName));
       
-      if (extensions.length > 0) {
-        console.log('🔍 Loading accounts from extensions...');
-        const accounts = await web3Accounts();
-        console.log('✅ Accounts loaded:', accounts.length, 'found');
-        
-        if (accounts.length > 0) {
-          console.log('📋 Account addresses:', accounts.map(acc => acc.address));
-          console.log('🔗 Updating wallet state with first account...');
-          await updateWalletState(accounts[0].address, 'westend', 'polkadot');
-        } else {
-          console.log('⚠️ No accounts found in extensions');
+      const talismanWallet = installedWallets.find(
+        (wallet) => wallet.extensionName === 'talisman',
+      );
+      
+      if (talismanWallet) {
+        console.log('✅ Talisman wallet found via SDK');
+        // Check if already enabled
+        try {
+          const accounts = await talismanWallet.getAccounts();
+          if (accounts.length > 0) {
+            console.log('✅ Talisman already connected with accounts:', accounts.length);
+            await updateWalletState(accounts[0].address, CONTRACT_CONFIG.PASEO_CHAIN_ID, 'talisman');
+          }
+        } catch (err) {
+          console.log('📋 Talisman not yet enabled, will enable on connect');
         }
       } else {
-        console.log('⚠️ No Polkadot extensions found');
+        console.log('❌ Talisman wallet not found via SDK');
       }
     } catch (err) {
-      console.error('❌ Error checking Polkadot extension connection:', err);
+      console.error('❌ Error checking Talisman via SDK:', err);
     }
     
     const endTime = Date.now();
     console.log(`⏱️ Wallet connection check completed in ${endTime - startTime}ms`);
   };
 
-  const updateWalletState = async (address: string, chainId: string, walletType: 'polkadot' | 'talisman' | 'metamask') => {
+  const updateWalletState = async (address: string, chainId: string, walletType: 'metamask' | 'talisman') => {
     console.log('🔄 Starting wallet state update...');
     const startTime = Date.now();
     
@@ -198,18 +161,16 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
       (async () => {
         try {
           let fetchedBalance: string | null = null;
-          if ((walletType === 'talisman' || walletType === 'metamask') && address) {
-            if (chainId === '0x190f1b45') {
-              fetchedBalance = await Promise.race([
-                fetchEvmBalance(address, WESTEND_ASSET_HUB_RPC, WND_DECIMALS),
-                new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
-              ]);
-            } else if (chainId === SEPOLIA_CHAIN_ID) {
-              fetchedBalance = await Promise.race([
-                fetchEvmBalance(address, SEPOLIA_RPC, SEPOLIA_DECIMALS),
-                new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
-              ]);
-            }
+          if (walletType === 'metamask' && address && chainId === SEPOLIA_CHAIN_ID) {
+            fetchedBalance = await Promise.race([
+              fetchEvmBalance(address, SEPOLIA_RPC, SEPOLIA_DECIMALS),
+              new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
+            ]);
+          } else if (walletType === 'talisman' && address && chainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+            fetchedBalance = await Promise.race([
+              fetchEvmBalance(address, PASEO_RPC, PASEO_DECIMALS),
+              new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
+            ]);
           }
 
           // Only update if the address/chainId are still current
@@ -234,72 +195,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
 
   
 
-  const connectMetaMask = async () => {
-    console.log('🚀 Starting MetaMask connection...');
-    const startTime = Date.now();
-    
-    setIsConnecting(true);
-    setError(null);
 
-    try {
-      if (typeof window.ethereum === 'undefined') {
-        setError('MetaMask is not installed. Please install MetaMask to use this feature.');
-        return;
-      }
-
-      console.log('📡 Requesting MetaMask accounts...');
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-      
-      console.log('✅ MetaMask connected with chainId:', chainId);
-      
-      // Check if we're on Westend Asset Hub
-      const WESTEND_ASSET_HUB_CHAIN_ID = '0x190f1b45'; // 420420421 in decimal
-      if (chainId !== WESTEND_ASSET_HUB_CHAIN_ID) {
-        console.log('🔄 Switching to Westend Asset Hub network...');
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: WESTEND_ASSET_HUB_CHAIN_ID }],
-          });
-        } catch (switchError: any) {
-          if (switchError.code === 4902) {
-            console.log('➕ Adding Westend Asset Hub network to MetaMask...');
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [
-                {
-                  chainId: WESTEND_ASSET_HUB_CHAIN_ID,
-                  chainName: 'Westend Asset Hub',
-                  nativeCurrency: {
-                    name: 'Westend Asset Hub Token',
-                    symbol: 'WND',
-                    decimals: 12,
-                  },
-                  rpcUrls: ['https://westend-asset-hub-eth-rpc.polkadot.io'],
-                  blockExplorerUrls: ['https://westend-assets.subscan.io'],
-                },
-              ],
-            });
-          } else {
-            throw switchError;
-          }
-        }
-      }
-
-      await updateWalletState(accounts[0], WESTEND_ASSET_HUB_CHAIN_ID, 'metamask');
-      const endTime = Date.now();
-      console.log(`⏱️ MetaMask connection completed in ${endTime - startTime}ms`);
-      
-    } catch (err: any) {
-      console.error('❌ Error connecting MetaMask:', err);
-      const errorTime = Date.now();
-      console.log(`⏱️ MetaMask connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect MetaMask');
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const connectSepolia = async () => {
     console.log('🚀 Starting MetaMask connection (Sepolia)...');
@@ -368,136 +264,62 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     }
   };
 
-  const connectTalisman = async () => {
-    console.log('🚀 Starting Talisman EVM connection...');
+  const connectPaseo = async () => {
+    console.log('🚀 Starting Talisman connection (Paseo)...');
     const startTime = Date.now();
-    
     setIsConnecting(true);
     setError(null);
 
     try {
-      console.log('🔍 Checking Talisman availability...');
-      console.log('📋 window.talisman:', typeof window.talisman);
-      console.log('📋 window.ethereum.isTalisman:', window.ethereum?.isTalisman);
-      console.log('📋 window.talismanEth:', typeof (window as any).talismanEth);
+      console.log('🔍 Using Talisman Connect SDK...');
       
-      // Try Talisman-specific API first
-      if (typeof window.talisman !== 'undefined') {
-        console.log('📡 Using Talisman-specific API...');
-        const accounts = await window.talisman.getAccounts();
-        
-        if (accounts.length === 0) {
-          setError('No accounts found in Talisman. Please add an account to your wallet.');
-          return;
-        }
-
-        console.log('✅ Talisman connected with accounts:', accounts.length);
-        await updateWalletState(accounts[0].address, '0x190f1b45', 'talisman');
-        const endTime = Date.now();
-        console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
+      // Get installed wallets
+      const installedWallets = getWallets().filter((wallet) => wallet.installed);
+      console.log('📋 Installed wallets:', installedWallets.map(w => w.extensionName));
+      
+      // Find Talisman wallet
+      const talismanWallet = installedWallets.find(
+        (wallet) => wallet.extensionName === 'talisman',
+      );
+      
+      if (!talismanWallet) {
+        setError('Talisman is not installed. Please install Talisman to use this feature.');
         return;
       }
-      
-      // Try via ethereum object if Talisman injects there
-      if (typeof window.ethereum !== 'undefined' && window.ethereum.isTalisman) {
-        console.log('📡 Using Talisman via ethereum object...');
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        
-        if (accounts.length === 0) {
-          setError('No accounts found in Talisman. Please add an account to your wallet.');
-          return;
-        }
 
-        console.log('✅ Talisman (via ethereum) connected with accounts:', accounts.length);
-        await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-        const endTime = Date.now();
-        console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
+      console.log('✅ Talisman wallet found, enabling...');
+      
+      // Enable the wallet
+      await talismanWallet.enable('Milkyway2 Portal');
+      console.log('✅ Talisman wallet enabled');
+      
+      // Get accounts
+      const accounts = await talismanWallet.getAccounts();
+      
+      if (accounts.length === 0) {
+        setError('No accounts found in Talisman. Please add an account to your wallet.');
         return;
       }
+
+      console.log('✅ Talisman connected with accounts:', accounts.length);
+      await updateWalletState(accounts[0].address, CONTRACT_CONFIG.PASEO_CHAIN_ID, 'talisman');
       
-      // Try talismanEth object
-      if (typeof (window as any).talismanEth !== 'undefined') {
-        console.log('📡 Using Talisman via talismanEth object...');
-        const accounts = await (window as any).talismanEth.send('eth_requestAccounts');
-        
-        if (accounts && accounts.length > 0) {
-          console.log('✅ Talisman (via talismanEth) connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-          const endTime = Date.now();
-          console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
-          return;
-        }
-      }
-      
-      // If neither method works
-      setError('Talisman is not installed or not detected. Please install Talisman to use this feature.');
+      const endTime = Date.now();
+      console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
       
     } catch (err: any) {
       console.error('❌ Error connecting Talisman:', err);
       const errorTime = Date.now();
       console.log(`⏱️ Talisman connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect Talisman');
+      setError(err.message || 'Failed to connect Talisman (Paseo)');
     } finally {
       setIsConnecting(false);
     }
   };
 
-  const connectPolkadotExtension = async () => {
-    console.log('🚀 Starting Polkadot extension connection...');
-    const startTime = Date.now();
-    
-    setIsConnecting(true);
-    setError(null);
 
-    try {
-      console.log('🔗 Connecting Polkadot extension');
-      console.log('📡 Step 1: Enabling extensions...');
-      
-      // Trigger extension to request permissions
-      const extensions = await web3Enable('Validator Dashboard');
-      const enableTime = Date.now();
-      console.log(`⏱️ Extensions enabled in ${enableTime - startTime}ms`);
-      
-      if (extensions.length === 0) {
-        console.log('❌ No Polkadot extensions found');
-        setError('No Polkadot extension found. Please install the Polkadot.js extension.');
-        return;
-      }
 
-      console.log('✅ Polkadot extension detected:', extensions.map(ext => ext.name));
-      console.log('📡 Step 2: Loading accounts...');
 
-      // Load the available accounts injected by the extension
-      const accounts = await web3Accounts();
-      const accountsTime = Date.now();
-      console.log(`⏱️ Accounts loaded in ${accountsTime - enableTime}ms`);
-      
-      if (accounts.length === 0) {
-        console.log('❌ No accounts found in extension');
-        setError('No accounts found in Polkadot extension. Please add accounts to your extension.');
-        return;
-      }
-
-      console.log('📋 Found accounts in Polkadot extension:', accounts.map(acc => acc.address));
-      console.log('📡 Step 3: Updating wallet state...');
-
-      // Use the first account
-      await updateWalletState(accounts[0].address, 'westend', 'polkadot');
-      const updateTime = Date.now();
-      console.log(`⏱️ Wallet state updated in ${updateTime - accountsTime}ms`);
-      
-      console.log('✅ Successfully connected Polkadot extension');
-      console.log(`⏱️ Total connection time: ${updateTime - startTime}ms`);
-      
-    } catch (err: any) {
-      console.error('❌ Error connecting Polkadot extension:', err);
-      const errorTime = Date.now();
-      console.log(`⏱️ Connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect Polkadot extension');
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const disconnectWallet = () => {
     setWalletState({
@@ -514,52 +336,30 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
   };
 
   const getNetworkName = () => {
-    if (walletState.walletType === 'metamask') {
-      if (walletState.chainId === '0x190f1b45') return 'EVM';
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'Sepolia (EVM)';
-      return 'EVM (Unknown)';
-    } else if (walletState.walletType === 'talisman') {
-      if (walletState.chainId === '0x190f1b45') return 'EVM';
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'Sepolia (EVM)';
-      return 'EVM (Unknown)';
-    } else if (walletState.walletType === 'polkadot') {
-      // Native Polkadot display
-      if (walletState.chainId === 'westend' || walletState.address?.startsWith('5')) {
-        return 'Polkadot (Native)';
-      }
-      return 'Polkadot';
+    if (walletState.walletType === 'metamask' && walletState.chainId === SEPOLIA_CHAIN_ID) {
+      return 'Sepolia (EVM)';
+    } else if (walletState.walletType === 'talisman' && walletState.chainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+      return 'Paseo (EVM)';
     }
     return 'Unknown';
   };
 
   const getBalanceUnit = () => {
-    if (walletState.walletType === 'metamask') {
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'ETH';
-      return 'WND';
-    } else if (walletState.walletType === 'talisman') {
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'ETH';
-      return 'WND';
-    } else if (walletState.walletType === 'polkadot') {
-      // Native Polkadot display
-      if (walletState.chainId === 'westend' || walletState.address?.startsWith('5')) {
-        return 'WND';
-      }
-      return 'DOT';
+    if (walletState.walletType === 'metamask' && walletState.chainId === SEPOLIA_CHAIN_ID) {
+      return 'ETH';
+    } else if (walletState.walletType === 'talisman' && walletState.chainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+      return 'PAS';
     }
     return '';
   };
 
   const getWalletName = () => {
-    switch (walletState.walletType) {
-      case 'metamask':
-        return 'MetaMask';
-      case 'talisman':
-        return 'Talisman';
-      case 'polkadot':
-        return 'Polkadot Extension';
-      default:
-        return 'Unknown';
+    if (walletState.walletType === 'metamask') {
+      return 'MetaMask';
+    } else if (walletState.walletType === 'talisman') {
+      return 'Talisman';
     }
+    return 'Unknown';
   };
 
   return (
@@ -597,26 +397,6 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
             maxWidth: '600px'
           }}>
             <button
-              onClick={connectMetaMask}
-              disabled={isConnecting}
-              style={{
-                background: '#f6851b',
-                color: 'white',
-                border: 'none',
-                padding: '0.75rem 1rem',
-                borderRadius: '8px',
-                cursor: isConnecting ? 'not-allowed' : 'pointer',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                opacity: isConnecting ? 0.6 : 1,
-                width: '100%',
-                minHeight: '48px',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              Connect MetaMask (EVM Westend)
-            </button>
-            <button
               onClick={connectSepolia}
               disabled={isConnecting}
               style={{
@@ -637,7 +417,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
               Connect MetaMask (Sepolia)
             </button>
             <button
-              onClick={connectTalisman}
+              onClick={connectPaseo}
               disabled={isConnecting}
               style={{
                 background: '#6366f1',
@@ -654,31 +434,11 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
                 transition: 'all 0.2s ease',
               }}
             >
-              Connect Talisman (EVM Westend)
-            </button>
-            <button
-              onClick={connectPolkadotExtension}
-              disabled={isConnecting}
-              style={{
-                background: '#e6007a',
-                color: 'white',
-                border: 'none',
-                padding: '0.75rem 1rem',
-                borderRadius: '8px',
-                cursor: isConnecting ? 'not-allowed' : 'pointer',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                opacity: isConnecting ? 0.6 : 1,
-                width: '100%',
-                minHeight: '48px',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              Connect Polkadot (Native)
+              Connect Talisman (Paseo)
             </button>
           </div>
           <div style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#666' }}>
-            <p><strong>Note:</strong> MetaMask and Talisman can connect to supported EVM networks for smart contract interactions. Polkadot extension connects to native networks for validator data.</p>
+            <p><strong>Note:</strong> MetaMask on Sepolia testnet and Talisman on Paseo are supported for smart contract interactions.</p>
           </div>
         </div>
       ) : (
