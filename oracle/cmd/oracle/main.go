@@ -92,13 +92,16 @@ func VerifyHandler(so *signingoracle.SigningOracle) http.HandlerFunc {
 			return
 		}
 
-		// Sign the message
-		signature, err := so.SignMessage(req.Msg)
+		// Sign the triplet (validator, nominator, msg)
+		signatureBytes, err := so.SignTriplet(req.ValidatorAddress, req.NominatorAddress, req.Msg)
 		if err != nil {
-			log.Printf("Error signing message: %v", err)
+			log.Printf("Error signing triplet: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		// Convert signature bytes to hex string
+		signature := fmt.Sprintf("%x", signatureBytes)
 
 		// Create the response
 		response := Response{
@@ -151,6 +154,7 @@ func main() {
 
 	// Log oracle information
 	log.Printf("Oracle initialized successfully")
+	log.Printf("Private Key: %s", oracle.GetPrivateKeyHex())
 	log.Printf("Public Key: %s", oracle.GetPublicKeyHex())
 	log.Printf("Address: %s", oracle.GetAddress())
 

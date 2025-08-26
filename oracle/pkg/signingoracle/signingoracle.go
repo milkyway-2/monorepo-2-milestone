@@ -112,6 +112,19 @@ func (so *SigningOracle) SignEthereumMessage(msg string) (string, error) {
 	return hex.EncodeToString(signature), nil
 }
 
+// SignTriplet signs keccak256(abi.encodePacked(validator, nominator, msgText))
+// with the EIP-191 "\x19Ethereum Signed Message:\n32" prefix.
+func (so *SigningOracle) SignTriplet(validator, nominator, msgText string) (sig []byte, err error) {
+	packed := append(append([]byte(validator), []byte(nominator)...), []byte(msgText)...)
+	h := crypto.Keccak256(packed)
+
+	// EIP-191 for bytes32
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	ethSigned := crypto.Keccak256(append(prefix, h...))
+
+	return crypto.Sign(ethSigned, so.privateKey) // returns 65 bytes: r||s||v (v in {0,1})
+}
+
 // GetVerifier returns the delegation verifier
 func (so *SigningOracle) GetVerifier() *delegation.Verifier {
 	return so.verifier

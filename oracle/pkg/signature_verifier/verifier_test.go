@@ -347,7 +347,7 @@ func TestAnalyzeCurrentSignature(t *testing.T) {
 	log.Printf("🧪 Analyzing Current Signature for Smart Contract Configuration")
 
 	// The current signature from your oracle
-	signatureHex := "95cb703ba12c252f827b6f1f935013bfa7c4671083b67795a4e1b915bc3aaf202430f07045a7df61832a71fbaea93e71b6ad65f15ea3eb0a01fc35dd287a249701"
+	signatureHex := "58834788ab39de8718c0ae06f93c649154111b8fe81b0001352050d74af6c7c97f5a4b040cc1ca3fb6ed6cde818ede1e5bfa1edc2581e563178257170be7c76c01"
 
 	// The parameters from the transaction
 	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
@@ -543,4 +543,331 @@ func TestDebugOracleAddressMismatch(t *testing.T) {
 	log.Printf("   1. Update smart contract to use: %s", actualSigningAddress)
 	log.Printf("   2. Or find the private key for: %s", loggedOracleAddress)
 	log.Printf("   3. Or check your oracle's PRIVATE_KEY environment variable")
+}
+
+// TestVerifyPrivateKeyAddressMapping verifies the private key to address mapping
+func TestVerifyPrivateKeyAddressMapping(t *testing.T) {
+	log.Printf("🧪 Verifying Private Key to Address Mapping")
+
+	// Your actual oracle private key
+	actualOraclePrivateKey := "1aa5172e020221707442d32035524fc30c96ca1ba742cf0a7729533abd436975"
+
+	// The test private key from our tests
+	testPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	// The current signature from your oracle
+	signatureHex := "95cb703ba12c252f827b6f1f935013bfa7c4671083b67795a4e1b915bc3aaf202430f07045a7df61832a71fbaea93e71b6ad65f15ea3eb0a01fc35dd287a249701"
+
+	// The parameters from the transaction
+	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
+	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
+	msgText := "msg"
+
+	log.Printf("📋 Actual Oracle Private Key: %s", actualOraclePrivateKey)
+	log.Printf("📋 Test Private Key: %s", testPrivateKey)
+
+	// Test 1: Verify actual oracle private key generates correct address
+	os.Setenv("PRIVATE_KEY", actualOraclePrivateKey)
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+	defer os.Unsetenv("PRIVATE_KEY")
+	defer os.Unsetenv("POLKADOT_RPC_URL")
+
+	actualOracle, err := signingoracle.NewSigningOracle()
+	if err != nil {
+		log.Printf("❌ Failed to create oracle with actual private key: %v", err)
+	} else {
+		actualAddress := actualOracle.GetAddress()
+		log.Printf("📋 Actual Oracle Address: %s", actualAddress)
+
+		// Test signing with actual oracle
+		fullMessage := validatorAddress + nominatorAddress + msgText
+		actualSignature, err := actualOracle.SignEthereumMessage(fullMessage)
+		if err != nil {
+			log.Printf("❌ Failed to sign with actual oracle: %v", err)
+		} else {
+			log.Printf("📋 Actual Oracle Signature: %s", actualSignature)
+
+			// Verify this signature
+			verifier, err := NewOracleVerifiedDelegation(actualAddress)
+			if err != nil {
+				log.Printf("❌ Failed to create verifier: %v", err)
+			} else {
+				err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, actualSignature)
+				if err != nil {
+					log.Printf("❌ Actual oracle signature verification failed: %v", err)
+				} else {
+					log.Printf("✅ Actual oracle signature verification successful!")
+				}
+			}
+		}
+	}
+
+	// Test 2: Verify test private key generates expected address
+	os.Setenv("PRIVATE_KEY", testPrivateKey)
+	testOracle, err := signingoracle.NewSigningOracle()
+	if err != nil {
+		log.Printf("❌ Failed to create oracle with test private key: %v", err)
+	} else {
+		testAddress := testOracle.GetAddress()
+		log.Printf("📋 Test Oracle Address: %s", testAddress)
+
+		// Test signing with test oracle
+		fullMessage := validatorAddress + nominatorAddress + msgText
+		testSignature, err := testOracle.SignEthereumMessage(fullMessage)
+		if err != nil {
+			log.Printf("❌ Failed to sign with test oracle: %v", err)
+		} else {
+			log.Printf("📋 Test Oracle Signature: %s", testSignature)
+
+			// Verify this signature
+			verifier, err := NewOracleVerifiedDelegation(testAddress)
+			if err != nil {
+				log.Printf("❌ Failed to create verifier: %v", err)
+			} else {
+				err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, testSignature)
+				if err != nil {
+					log.Printf("❌ Test oracle signature verification failed: %v", err)
+				} else {
+					log.Printf("✅ Test oracle signature verification successful!")
+				}
+			}
+		}
+	}
+
+	// Test 3: Analyze the current signature
+	log.Printf("")
+	log.Printf("🔍 Analyzing Current Signature...")
+	message := validatorAddress + nominatorAddress + msgText
+	messageHash := crypto.Keccak256([]byte(message))
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	data := append(prefix, messageHash...)
+	ethSignedMessageHash := crypto.Keccak256(data)
+
+	signature, err := hex.DecodeString(signatureHex)
+	if err != nil {
+		log.Printf("❌ Failed to decode signature: %v", err)
+		return
+	}
+
+	recoveredPubKey, err := crypto.Ecrecover(ethSignedMessageHash, signature)
+	if err != nil {
+		log.Printf("❌ Failed to recover public key: %v", err)
+		return
+	}
+
+	pubKey, err := crypto.UnmarshalPubkey(recoveredPubKey)
+	if err != nil {
+		log.Printf("❌ Failed to unmarshal public key: %v", err)
+		return
+	}
+
+	recoveredAddress := crypto.PubkeyToAddress(*pubKey)
+	log.Printf("📋 Current Signature Recovered Address: %s", recoveredAddress.Hex())
+
+	log.Printf("")
+	log.Printf("🔧 SUMMARY:")
+	log.Printf("   Actual Oracle Private Key: %s", actualOraclePrivateKey)
+	log.Printf("   Actual Oracle Address: %s", actualOracle.GetAddress())
+	log.Printf("   Test Oracle Private Key: %s", testPrivateKey)
+	log.Printf("   Test Oracle Address: %s", testOracle.GetAddress())
+	log.Printf("   Current Signature Address: %s", recoveredAddress.Hex())
+	log.Printf("")
+	log.Printf("💡 This will help us understand which private key is actually signing!")
+}
+
+// TestFindMysteryPrivateKey helps find the private key for the mystery address
+func TestFindMysteryPrivateKey(t *testing.T) {
+	log.Printf("🧪 Finding Mystery Private Key")
+
+	// The mystery address that's actually signing
+	mysteryAddress := "0x6c6Fa8CEeF6AbB97dCd75a6e390386E4B49A5e09"
+
+	// Some common test private keys to try
+	testPrivateKeys := []string{
+		"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		"abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+		"1111111111111111111111111111111111111111111111111111111111111111",
+		"2222222222222222222222222222222222222222222222222222222222222222",
+		"3333333333333333333333333333333333333333333333333333333333333333",
+		"4444444444444444444444444444444444444444444444444444444444444444",
+		"5555555555555555555555555555555555555555555555555555555555555555",
+		"6666666666666666666666666666666666666666666666666666666666666666",
+		"7777777777777777777777777777777777777777777777777777777777777777",
+		"8888888888888888888888888888888888888888888888888888888888888888",
+		"9999999999999999999999999999999999999999999999999999999999999999",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+	}
+
+	log.Printf("📋 Looking for private key that generates: %s", mysteryAddress)
+	log.Printf("📋 Testing %d common private keys...", len(testPrivateKeys))
+
+	for i, testKey := range testPrivateKeys {
+		os.Setenv("PRIVATE_KEY", testKey)
+		os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+
+		oracle, err := signingoracle.NewSigningOracle()
+		if err != nil {
+			continue
+		}
+
+		address := oracle.GetAddress()
+		if address == mysteryAddress {
+			log.Printf("🎉 FOUND IT! Private key #%d generates the mystery address!", i+1)
+			log.Printf("📋 Private Key: %s", testKey)
+			log.Printf("📋 Address: %s", address)
+
+			// Test signing with this key
+			validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
+			nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
+			msgText := "msg"
+			fullMessage := validatorAddress + nominatorAddress + msgText
+
+			signature, err := oracle.SignEthereumMessage(fullMessage)
+			if err != nil {
+				log.Printf("❌ Failed to sign: %v", err)
+			} else {
+				log.Printf("📋 Generated Signature: %s", signature)
+
+				// Verify it matches the current signature
+				currentSignature := "95cb703ba12c252f827b6f1f935013bfa7c4671083b67795a4e1b915bc3aaf202430f07045a7df61832a71fbaea93e71b6ad65f15ea3eb0a01fc35dd287a249701"
+				if signature == currentSignature {
+					log.Printf("✅ SIGNATURE MATCHES! This is the correct private key!")
+				} else {
+					log.Printf("⚠️  Signature doesn't match, but address is correct")
+				}
+			}
+			break
+		}
+	}
+
+	log.Printf("")
+	log.Printf("💡 If no private key was found, the mystery address might come from:")
+	log.Printf("   1. A different oracle instance running elsewhere")
+	log.Printf("   2. A different environment variable")
+	log.Printf("   3. A different deployment")
+	log.Printf("   4. A cached/old signature")
+}
+
+// TestActualOracleVerification tests the actual oracle with its real private key
+func TestActualOracleVerification(t *testing.T) {
+	log.Printf("🧪 Testing Actual Oracle with Real Private Key")
+
+	// Your actual oracle private key
+	actualOraclePrivateKey := "1aa5172e020221707442d32035524fc30c96ca1ba742cf0a7729533abd436975"
+
+	// The current signature from your oracle
+	currentSignature := "58834788ab39de8718c0ae06f93c649154111b8fe81b0001352050d74af6c7c97f5a4b040cc1ca3fb6ed6cde818ede1e5bfa1edc2581e563178257170be7c76c01"
+
+	// The parameters from the transaction
+	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
+	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
+	msgText := "msg"
+
+	log.Printf("📋 Actual Oracle Private Key: %s", actualOraclePrivateKey)
+	log.Printf("📋 Current Signature: %s", currentSignature)
+
+	// Test 1: Create oracle with actual private key
+	os.Setenv("PRIVATE_KEY", actualOraclePrivateKey)
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+	defer os.Unsetenv("PRIVATE_KEY")
+	defer os.Unsetenv("POLKADOT_RPC_URL")
+
+	actualOracle, err := signingoracle.NewSigningOracle()
+	if err != nil {
+		log.Printf("❌ Failed to create oracle: %v", err)
+		return
+	}
+
+	actualAddress := actualOracle.GetAddress()
+	log.Printf("📋 Actual Oracle Address: %s", actualAddress)
+
+	// Test 2: Generate a new signature with the actual oracle
+	fullMessage := validatorAddress + nominatorAddress + msgText
+	newSignature, err := actualOracle.SignEthereumMessage(fullMessage)
+	if err != nil {
+		log.Printf("❌ Failed to sign with actual oracle: %v", err)
+		return
+	}
+
+	log.Printf("📋 New Signature: %s", newSignature)
+
+	// Test 3: Compare signatures
+	if newSignature == currentSignature {
+		log.Printf("✅ Signatures match! The oracle is working correctly.")
+	} else {
+		log.Printf("❌ Signatures don't match!")
+		log.Printf("   Current: %s", currentSignature)
+		log.Printf("   New:     %s", newSignature)
+	}
+
+	// Test 4: Verify the new signature with the actual oracle address
+	verifier, err := NewOracleVerifiedDelegation(actualAddress)
+	if err != nil {
+		log.Printf("❌ Failed to create verifier: %v", err)
+		return
+	}
+
+	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, newSignature)
+	if err != nil {
+		log.Printf("❌ New signature verification failed: %v", err)
+	} else {
+		log.Printf("✅ New signature verification successful!")
+	}
+
+	// Test 5: Verify the current signature with the actual oracle address
+	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, currentSignature)
+	if err != nil {
+		log.Printf("❌ Current signature verification failed: %v", err)
+	} else {
+		log.Printf("✅ Current signature verification successful!")
+	}
+
+	// Test 6: Analyze the current signature
+	log.Printf("")
+	log.Printf("🔍 Analyzing Current Signature...")
+	messageHash := crypto.Keccak256([]byte(fullMessage))
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	data := append(prefix, messageHash...)
+	ethSignedMessageHash := crypto.Keccak256(data)
+
+	signature, err := hex.DecodeString(currentSignature)
+	if err != nil {
+		log.Printf("❌ Failed to decode signature: %v", err)
+		return
+	}
+
+	recoveredPubKey, err := crypto.Ecrecover(ethSignedMessageHash, signature)
+	if err != nil {
+		log.Printf("❌ Failed to recover public key: %v", err)
+		return
+	}
+
+	pubKey, err := crypto.UnmarshalPubkey(recoveredPubKey)
+	if err != nil {
+		log.Printf("❌ Failed to unmarshal public key: %v", err)
+		return
+	}
+
+	recoveredAddress := crypto.PubkeyToAddress(*pubKey)
+	log.Printf("📋 Current Signature Recovered Address: %s", recoveredAddress.Hex())
+
+	log.Printf("")
+	log.Printf("🔧 SUMMARY:")
+	log.Printf("   Actual Oracle Private Key: %s", actualOraclePrivateKey)
+	log.Printf("   Actual Oracle Address: %s", actualAddress)
+	log.Printf("   Current Signature Address: %s", recoveredAddress.Hex())
+	log.Printf("")
+
+	if actualAddress == recoveredAddress.Hex() {
+		log.Printf("✅ ADDRESSES MATCH! Everything is working correctly!")
+	} else {
+		log.Printf("❌ ADDRESSES DON'T MATCH! There's still a mystery...")
+		log.Printf("   Expected: %s", actualAddress)
+		log.Printf("   Got:      %s", recoveredAddress.Hex())
+	}
 }
