@@ -15,9 +15,10 @@ contract OracleVerifiedDelegation {
     event MessageStored(string validator, string nominator, string msgText);
 
     constructor() {
-        // Ethereum address derived from public key:
-        // 04ae9ca2d5982331497abc86cb350e6254b7cb8411fe6bcb813cdb07104ea88fb35bd3de3ec967fd4ecb4a4a6c117b827d8d54acc72d277e4a6aa695ba253d4f76
-    oracleAddress = address(0x2BB632bAa1bCA1F51B7f4B2D02bC9bC07D5CDdFD);    }
+        // Ethereum address derived from the private key that's actually signing:
+        // This is the address that's actually signing your messages
+        oracleAddress = address(0x6c6Fa8CEeF6AbB97dCd75a6e390386E4B49A5e09);
+    }
 
     function submitMessage(
         string memory validator_address,

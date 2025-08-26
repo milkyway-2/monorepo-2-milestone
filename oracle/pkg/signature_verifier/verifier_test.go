@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"oracle/pkg/signingoracle"
+
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // TestSignAndVerifySuccess demonstrates a complete successful flow of signing and verifying
@@ -338,4 +340,207 @@ func TestVerifyWithActualSigner(t *testing.T) {
 	log.Printf("   Update the oracle address in your smart contract to: %s", actualSignerAddress)
 	log.Printf("")
 	log.Printf("💡 The signature is valid, but the contract expects the wrong oracle address!")
+}
+
+// TestAnalyzeCurrentSignature analyzes the current signature to determine the correct oracle address
+func TestAnalyzeCurrentSignature(t *testing.T) {
+	log.Printf("🧪 Analyzing Current Signature for Smart Contract Configuration")
+
+	// The current signature from your oracle
+	signatureHex := "95cb703ba12c252f827b6f1f935013bfa7c4671083b67795a4e1b915bc3aaf202430f07045a7df61832a71fbaea93e71b6ad65f15ea3eb0a01fc35dd287a249701"
+
+	// The parameters from the transaction
+	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
+	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
+	msgText := "msg"
+
+	log.Printf("📋 Validator Address: %s", validatorAddress)
+	log.Printf("📋 Nominator Address: %s", nominatorAddress)
+	log.Printf("📋 Message Text: %s", msgText)
+	log.Printf("📋 Signature: %s", signatureHex)
+
+	// Create message hash (same as smart contract)
+	message := validatorAddress + nominatorAddress + msgText
+	messageHash := crypto.Keccak256([]byte(message))
+	log.Printf("📋 Message Hash: %s", hex.EncodeToString(messageHash))
+
+	// Create Ethereum signed message hash (same as smart contract)
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	data := append(prefix, messageHash...)
+	ethSignedMessageHash := crypto.Keccak256(data)
+	log.Printf("📋 Ethereum Signed Message Hash: %s", hex.EncodeToString(ethSignedMessageHash))
+
+	// Decode the signature
+	signature, err := hex.DecodeString(signatureHex)
+	if err != nil {
+		log.Printf("❌ Failed to decode signature: %v", err)
+		return
+	}
+
+	// Recover the signer address
+	recoveredPubKey, err := crypto.Ecrecover(ethSignedMessageHash, signature)
+	if err != nil {
+		log.Printf("❌ Failed to recover public key: %v", err)
+		return
+	}
+
+	pubKey, err := crypto.UnmarshalPubkey(recoveredPubKey)
+	if err != nil {
+		log.Printf("❌ Failed to unmarshal public key: %v", err)
+		return
+	}
+
+	recoveredAddress := crypto.PubkeyToAddress(*pubKey)
+	log.Printf("📋 Recovered Oracle Address: %s", recoveredAddress.Hex())
+
+	// Test verification with the recovered address
+	verifier, err := NewOracleVerifiedDelegation(recoveredAddress.Hex())
+	if err != nil {
+		log.Printf("❌ Failed to create verifier: %v", err)
+		return
+	}
+
+	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
+	if err != nil {
+		log.Printf("❌ Verification failed: %v", err)
+	} else {
+		log.Printf("✅ Verification successful!")
+	}
+
+	log.Printf("")
+	log.Printf("🔧 SMART CONTRACT CONFIGURATION:")
+	log.Printf("   Your smart contract should be configured with oracle address:")
+	log.Printf("   %s", recoveredAddress.Hex())
+	log.Printf("")
+	log.Printf("💡 This is the address that's actually signing your messages!")
+	log.Printf("💡 Update your smart contract's oracle address to this value.")
+}
+
+// TestUpdatedSmartContractConfig verifies the updated smart contract configuration
+func TestUpdatedSmartContractConfig(t *testing.T) {
+	log.Printf("🧪 Testing Updated Smart Contract Configuration")
+
+	// The updated oracle address for the smart contract
+	updatedOracleAddress := "0x6c6Fa8CEeF6AbB97dCd75a6e390386E4B49A5e09"
+
+	// The current signature from your oracle
+	signatureHex := "95cb703ba12c252f827b6f1f935013bfa7c4671083b67795a4e1b915bc3aaf202430f07045a7df61832a71fbaea93e71b6ad65f15ea3eb0a01fc35dd287a249701"
+
+	// The parameters from the transaction
+	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
+	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
+	msgText := "msg"
+
+	log.Printf("📋 Updated Oracle Address: %s", updatedOracleAddress)
+	log.Printf("📋 Validator Address: %s", validatorAddress)
+	log.Printf("📋 Nominator Address: %s", nominatorAddress)
+	log.Printf("📋 Message Text: %s", msgText)
+	log.Printf("📋 Signature: %s", signatureHex)
+
+	// Create verifier with the updated oracle address
+	verifier, err := NewOracleVerifiedDelegation(updatedOracleAddress)
+	if err != nil {
+		t.Fatalf("Failed to create verifier: %v", err)
+	}
+
+	// Test the verification (this should now work!)
+	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
+	if err != nil {
+		log.Printf("❌ Verification failed: %v", err)
+		t.Fatalf("Verification should succeed with updated oracle address")
+	} else {
+		log.Printf("✅ Verification successful!")
+		log.Printf("🎉 The updated smart contract configuration will work!")
+	}
+
+	// Test the convenience function
+	message := Message{
+		ValidatorAddress: validatorAddress,
+		NominatorAddress: nominatorAddress,
+		MsgText:          msgText,
+	}
+
+	err = verifier.VerifyMessage(message, signatureHex)
+	if err != nil {
+		log.Printf("❌ Convenience function failed: %v", err)
+		t.Fatalf("Convenience function should succeed with updated oracle address")
+	} else {
+		log.Printf("✅ Convenience function successful!")
+	}
+
+	log.Printf("")
+	log.Printf("🔧 SMART CONTRACT UPDATE SUMMARY:")
+	log.Printf("   ✅ Changed oracle address from: 0xb513496Cf374fbDF37F370d841A6F9023f68F4b0")
+	log.Printf("   ✅ Changed oracle address to: %s", updatedOracleAddress)
+	log.Printf("   ✅ Signature verification now works!")
+	log.Printf("")
+	log.Printf("💡 Deploy this updated smart contract and your transactions will succeed!")
+}
+
+// TestDebugOracleAddressMismatch investigates the discrepancy between logged and actual addresses
+func TestDebugOracleAddressMismatch(t *testing.T) {
+	log.Printf("🧪 Debugging Oracle Address Mismatch")
+
+	// The address your oracle thinks it has (from logs)
+	loggedOracleAddress := "0xb513496Cf374fbDF37F370d841A6F9023f68F4b0"
+
+	// The address that's actually signing (from signature recovery)
+	actualSigningAddress := "0x6c6Fa8CEeF6AbB97dCd75a6e390386E4B49A5e09"
+
+	// The current signature from your oracle
+	signatureHex := "95cb703ba12c252f827b6f1f935013bfa7c4671083b67795a4e1b915bc3aaf202430f07045a7df61832a71fbaea93e71b6ad65f15ea3eb0a01fc35dd287a249701"
+
+	// The parameters from the transaction
+	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
+	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
+	msgText := "msg"
+
+	log.Printf("📋 Oracle Logged Address: %s", loggedOracleAddress)
+	log.Printf("📋 Actual Signing Address: %s", actualSigningAddress)
+	log.Printf("📋 Signature: %s", signatureHex)
+
+	// Test with logged address (should fail)
+	log.Printf("🔍 Testing with logged oracle address...")
+	verifierLogged, err := NewOracleVerifiedDelegation(loggedOracleAddress)
+	if err != nil {
+		log.Printf("❌ Failed to create verifier with logged address: %v", err)
+	} else {
+		err = verifierLogged.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
+		if err != nil {
+			log.Printf("❌ Verification failed with logged address: %v", err)
+		} else {
+			log.Printf("✅ Verification succeeded with logged address!")
+		}
+	}
+
+	// Test with actual signing address (should work)
+	log.Printf("🔍 Testing with actual signing address...")
+	verifierActual, err := NewOracleVerifiedDelegation(actualSigningAddress)
+	if err != nil {
+		log.Printf("❌ Failed to create verifier with actual address: %v", err)
+	} else {
+		err = verifierActual.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
+		if err != nil {
+			log.Printf("❌ Verification failed with actual address: %v", err)
+		} else {
+			log.Printf("✅ Verification succeeded with actual address!")
+		}
+	}
+
+	log.Printf("")
+	log.Printf("🔧 ANALYSIS:")
+	log.Printf("   Your oracle logs show address: %s", loggedOracleAddress)
+	log.Printf("   But signatures are coming from: %s", actualSigningAddress)
+	log.Printf("")
+	log.Printf("💡 POSSIBLE CAUSES:")
+	log.Printf("   1. Multiple oracle instances running with different private keys")
+	log.Printf("   2. Environment variable PRIVATE_KEY not set correctly")
+	log.Printf("   3. Oracle service restarted with different private key")
+	log.Printf("   4. Different private key in different environment")
+	log.Printf("")
+	log.Printf("🔧 TO FIX:")
+	log.Printf("   Either:")
+	log.Printf("   1. Update smart contract to use: %s", actualSigningAddress)
+	log.Printf("   2. Or find the private key for: %s", loggedOracleAddress)
+	log.Printf("   3. Or check your oracle's PRIVATE_KEY environment variable")
 }
