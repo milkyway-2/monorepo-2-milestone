@@ -72,6 +72,9 @@ echo ""
 echo "Extracting private key in hex format..."
 PRIVATE_KEY_HEX=$(openssl ec -in keys/private.pem -outform DER | tail -c 32 | xxd -p -c 32)
 
+# Remove the PEM file since we have the hex format
+rm keys/private.pem
+
 # Create .env file with all key information
 echo "Creating .env file with key information..."
 cat > .env << EOF
