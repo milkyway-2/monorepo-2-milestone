@@ -128,3 +128,46 @@ func (o *OracleVerifiedDelegation) VerifyMessage(msg Message, signatureHex strin
 func (o *OracleVerifiedDelegation) GetOracleAddress() common.Address {
 	return o.OracleAddress
 }
+
+// CreateValidSignature is a helper function to create a valid signature for testing
+// In production, this would be done by the oracle with its private key
+func (o *OracleVerifiedDelegation) CreateValidSignature(
+	validatorAddress string,
+	nominatorAddress string,
+	msgText string,
+	privateKeyHex string,
+) (string, error) {
+	// Decode the private key
+	privateKeyBytes, err := hex.DecodeString(privateKeyHex)
+	if err != nil {
+		return "", fmt.Errorf("invalid private key hex: %w", err)
+	}
+
+	// Create the private key
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to create private key: %w", err)
+	}
+
+	// Verify the private key corresponds to the oracle address
+	derivedAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+	if derivedAddress != o.OracleAddress {
+		return "", fmt.Errorf("private key does not correspond to oracle address: expected %s, got %s",
+			o.OracleAddress.Hex(), derivedAddress.Hex())
+	}
+
+	// Create message hash
+	messageHash := o.createMessageHash(validatorAddress, nominatorAddress, msgText)
+
+	// Create Ethereum signed message hash
+	ethSignedMessageHash := o.toEthSignedMessageHash(messageHash)
+
+	// Sign the message
+	signature, err := crypto.Sign(ethSignedMessageHash, privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	// Return hex-encoded signature
+	return hex.EncodeToString(signature), nil
+}
