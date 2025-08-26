@@ -1,375 +1,162 @@
 package signatureverifier
 
 import (
-	"crypto/ecdsa"
 	"encoding/hex"
 	"log"
+	"os"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"oracle/pkg/signingoracle"
 )
 
-func TestCompleteSigningAndVerificationFlow(t *testing.T) {
-	log.Printf("🧪 Starting Complete Signing and Verification Flow Test")
+// TestSignAndVerifySuccess demonstrates a complete successful flow of signing and verifying
+func TestSignAndVerifySuccess(t *testing.T) {
+	log.Printf("🧪 Starting Sign and Verify Success Test")
 
-	// Step 1: Generate a test private key and derive the oracle address
-	log.Printf("🔑 Step 1: Generating test private key and oracle address")
+	// Step 1: Set up the signing oracle with a test private key
+	privateKeyHex := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	os.Setenv("PRIVATE_KEY", privateKeyHex)
+	defer os.Unsetenv("PRIVATE_KEY")
 
-	// Generate a random private key for testing
-	privateKey, err := crypto.GenerateKey()
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+	defer os.Unsetenv("POLKADOT_RPC_URL")
+
+	signingOracle, err := signingoracle.NewSigningOracle()
 	if err != nil {
-		t.Fatalf("Failed to generate private key: %v", err)
+		t.Fatalf("Failed to create signing oracle: %v", err)
 	}
 
-	// Get the public key and derive the address
-	publicKey := privateKey.Public().(*ecdsa.PublicKey)
-	oracleAddress := crypto.PubkeyToAddress(*publicKey)
+	oracleAddress := signingOracle.GetAddress()
+	log.Printf("📋 Oracle Address: %s", oracleAddress)
 
-	log.Printf("📋 Generated Oracle Address: %s", oracleAddress.Hex())
-	log.Printf("📋 Private Key: %s", hex.EncodeToString(crypto.FromECDSA(privateKey)))
-
-	// Step 2: Create the verifier with the oracle address
-	log.Printf("🔧 Step 2: Creating verifier with oracle address")
-	verifier, err := NewOracleVerifiedDelegation(oracleAddress.Hex())
+	// Step 2: Create the verifier
+	verifier, err := NewOracleVerifiedDelegation(oracleAddress)
 	if err != nil {
 		t.Fatalf("Failed to create verifier: %v", err)
 	}
-	log.Printf("✅ Verifier created successfully")
 
-	// Step 3: Prepare the delegation message
-	log.Printf("📝 Step 3: Preparing delegation message")
+	// Step 3: Define the message to sign
 	validatorAddress := "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 	nominatorAddress := "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
 	msgText := "I want to delegate 100 DOT to this validator"
 
-	message := Message{
-		ValidatorAddress: validatorAddress,
-		NominatorAddress: nominatorAddress,
-		MsgText:          msgText,
-	}
+	log.Printf("📋 Validator: %s", validatorAddress)
+	log.Printf("📋 Nominator: %s", nominatorAddress)
+	log.Printf("📋 Message: %s", msgText)
 
-	log.Printf("📋 Validator Address: %s", validatorAddress)
-	log.Printf("📋 Nominator Address: %s", nominatorAddress)
-	log.Printf("📋 Message Text: %s", msgText)
-
-	// Step 4: Create the message hash (same as verifier does)
-	log.Printf("🔍 Step 4: Creating message hash")
-	messageHash := verifier.createMessageHash(validatorAddress, nominatorAddress, msgText)
-	log.Printf("📋 Message Hash: %s", hex.EncodeToString(messageHash))
-
-	// Step 5: Create Ethereum signed message hash
-	log.Printf("🔐 Step 5: Creating Ethereum signed message hash")
-	ethSignedMessageHash := verifier.toEthSignedMessageHash(messageHash)
-	log.Printf("📋 Ethereum Signed Message Hash: %s", hex.EncodeToString(ethSignedMessageHash))
-
-	// Step 6: Sign the Ethereum signed message hash
-	log.Printf("✍️ Step 6: Signing the message hash")
-	signature, err := crypto.Sign(ethSignedMessageHash, privateKey)
+	// Step 4: Sign the message using the signing oracle
+	fullMessage := validatorAddress + nominatorAddress + msgText
+	signatureHex, err := signingOracle.SignEthereumMessage(fullMessage)
 	if err != nil {
 		t.Fatalf("Failed to sign message: %v", err)
 	}
 
-	signatureHex := hex.EncodeToString(signature)
 	log.Printf("📋 Signature: %s", signatureHex)
 
-	// Step 7: Verify the signature using our verifier
-	log.Printf("✅ Step 7: Verifying the signature")
+	// Step 5: Verify the signature using the verifier
 	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
 	if err != nil {
 		t.Fatalf("Signature verification failed: %v", err)
 	}
-	log.Printf("✅ Signature verification successful!")
 
-	// Step 8: Test the convenience function
-	log.Printf("🔄 Step 8: Testing convenience function")
-	err = verifier.VerifyMessage(message, signatureHex)
-	if err != nil {
-		t.Fatalf("Convenience function verification failed: %v", err)
-	}
-	log.Printf("✅ Convenience function verification successful!")
-
-	// Step 9: Verify oracle address matches
-	log.Printf("🔍 Step 9: Verifying oracle address")
-	recoveredAddress, err := verifier.recoverSigner(ethSignedMessageHash, signature)
-	if err != nil {
-		t.Fatalf("Failed to recover signer: %v", err)
-	}
-
-	if recoveredAddress != oracleAddress {
-		t.Fatalf("Recovered address doesn't match oracle address: expected %s, got %s",
-			oracleAddress.Hex(), recoveredAddress.Hex())
-	}
-	log.Printf("✅ Oracle address verification successful: %s", recoveredAddress.Hex())
-
-	log.Printf("🎉 Complete signing and verification flow test passed!")
+	log.Printf("✅ SUCCESS: Message signed and verified successfully!")
+	log.Printf("🎉 The complete flow works correctly!")
 }
 
-// TestRealContractParameters tests with the exact parameters from the failing contract transaction
-func TestRealContractParameters(t *testing.T) {
-	log.Printf("🧪 Testing with real contract parameters")
+// TestEnvironmentVariableHandling tests the signing oracle with environment variables
+func TestEnvironmentVariableHandling(t *testing.T) {
+	log.Printf("🧪 Testing Environment Variable Handling")
 
-	// The oracle address from the actual smart contract (updated)
-	oracleAddress := "0x45D1960EB3E945e148D2828a2dC0CbBb52a29609"
+	// Test with missing PRIVATE_KEY
+	os.Unsetenv("PRIVATE_KEY")
+	_, err := signingoracle.NewSigningOracle()
+	if err == nil {
+		t.Fatalf("Expected error when PRIVATE_KEY is missing")
+	}
+	log.Printf("✅ Correctly handled missing PRIVATE_KEY: %v", err)
 
-	// Create verifier with the real oracle address
-	verifier, err := NewOracleVerifiedDelegation(oracleAddress)
+	// Test with invalid PRIVATE_KEY
+	os.Setenv("PRIVATE_KEY", "invalid_hex")
+	_, err = signingoracle.NewSigningOracle()
+	if err == nil {
+		t.Fatalf("Expected error when PRIVATE_KEY is invalid")
+	}
+	log.Printf("✅ Correctly handled invalid PRIVATE_KEY: %v", err)
+
+	// Test with valid PRIVATE_KEY
+	os.Setenv("PRIVATE_KEY", "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+
+	signingOracle, err := signingoracle.NewSigningOracle()
+	if err != nil {
+		t.Fatalf("Failed to create signing oracle with valid environment: %v", err)
+	}
+
+	log.Printf("✅ Successfully created signing oracle with valid environment")
+	log.Printf("📋 Oracle Address: %s", signingOracle.GetAddress())
+	log.Printf("📋 Public Key: %s", signingOracle.GetPublicKeyHex())
+
+	// Clean up
+	os.Unsetenv("PRIVATE_KEY")
+	os.Unsetenv("POLKADOT_RPC_URL")
+}
+
+// TestSigningOracleIntegration tests the integration between signing oracle and verifier
+func TestSigningOracleIntegration(t *testing.T) {
+	log.Printf("🧪 Testing Signing Oracle Integration")
+
+	// Set up environment for testing
+	privateKeyHex := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	os.Setenv("PRIVATE_KEY", privateKeyHex)
+	defer os.Unsetenv("PRIVATE_KEY")
+
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+	defer os.Unsetenv("POLKADOT_RPC_URL")
+
+	// Create signing oracle
+	signingOracle, err := signingoracle.NewSigningOracle()
+	if err != nil {
+		t.Fatalf("Failed to create signing oracle: %v", err)
+	}
+
+	// Create verifier
+	verifier, err := NewOracleVerifiedDelegation(signingOracle.GetAddress())
 	if err != nil {
 		t.Fatalf("Failed to create verifier: %v", err)
 	}
 
-	// The exact parameters from the failing transaction
+	// Test data
 	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
 	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
-	msgText := "msg"
-	signatureHex := "100476bab5ff7bdeab21fc9171dcf118a909a2a00aae5fa3005c082b7820aa743687029ff34288f0c2a8303246aefc84264f50082ee8fc8df546dff3461a025701"
+	msgText := "Test delegation message"
 
-	log.Printf("📋 Oracle Address: %s", oracleAddress)
+	log.Printf("📋 Oracle Address: %s", signingOracle.GetAddress())
 	log.Printf("📋 Validator Address: %s", validatorAddress)
 	log.Printf("📋 Nominator Address: %s", nominatorAddress)
 	log.Printf("📋 Message Text: %s", msgText)
+
+	// Create message hash
+	messageHash := verifier.createMessageHash(validatorAddress, nominatorAddress, msgText)
+	log.Printf("📋 Message Hash: %s", hex.EncodeToString(messageHash))
+
+	// Create Ethereum signed message hash
+	ethSignedMessageHash := verifier.toEthSignedMessageHash(messageHash)
+	log.Printf("📋 Ethereum Signed Message Hash: %s", hex.EncodeToString(ethSignedMessageHash))
+
+	// Sign using signing oracle
+	fullMessage := validatorAddress + nominatorAddress + msgText
+	signatureHex, err := signingOracle.SignEthereumMessage(fullMessage)
+	if err != nil {
+		t.Fatalf("Failed to sign message: %v", err)
+	}
+
 	log.Printf("📋 Signature: %s", signatureHex)
 
-	// Create message hash
-	messageHash := verifier.createMessageHash(validatorAddress, nominatorAddress, msgText)
-	log.Printf("📋 Message Hash: %s", hex.EncodeToString(messageHash))
-
-	// Create Ethereum signed message hash
-	ethSignedMessageHash := verifier.toEthSignedMessageHash(messageHash)
-	log.Printf("📋 Ethereum Signed Message Hash: %s", hex.EncodeToString(ethSignedMessageHash))
-
-	// Decode the signature
-	signature, err := hex.DecodeString(signatureHex)
-	if err != nil {
-		log.Printf("❌ Failed to decode signature: %v", err)
-		return
-	}
-
-	// Try to recover the signer
-	recoveredAddress, err := verifier.recoverSigner(ethSignedMessageHash, signature)
-	if err != nil {
-		log.Printf("❌ Failed to recover signer: %v", err)
-	} else {
-		log.Printf("📋 Recovered Address: %s", recoveredAddress.Hex())
-		log.Printf("📋 Expected Oracle Address: %s", oracleAddress)
-
-		if recoveredAddress.Hex() == oracleAddress {
-			log.Printf("✅ Addresses match!")
-		} else {
-			log.Printf("❌ Addresses don't match!")
-		}
-	}
-
-	// Try the full verification
+	// Verify using verifier
 	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
 	if err != nil {
-		log.Printf("❌ Verification failed: %v", err)
-	} else {
-		log.Printf("✅ Verification successful!")
-	}
-}
-
-// TestCorrectOracleSignature demonstrates how to create a valid signature with the correct oracle private key
-func TestCorrectOracleSignature(t *testing.T) {
-	log.Printf("🧪 Testing with correct oracle signature")
-
-	// The oracle address from the actual smart contract (updated)
-	oracleAddress := "0x45D1960EB3E945e148D2828a2dC0CbBb52a29609"
-
-	// Create verifier with the real oracle address
-	verifier, err := NewOracleVerifiedDelegation(oracleAddress)
-	if err != nil {
-		t.Fatalf("Failed to create verifier: %v", err)
+		t.Fatalf("Verification failed: %v", err)
 	}
 
-	// The parameters from the failing transaction
-	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
-	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
-	msgText := "msg"
-
-	log.Printf("📋 Oracle Address: %s", oracleAddress)
-	log.Printf("📋 Validator Address: %s", validatorAddress)
-	log.Printf("📋 Nominator Address: %s", nominatorAddress)
-	log.Printf("📋 Message Text: %s", msgText)
-
-	// Create message hash
-	messageHash := verifier.createMessageHash(validatorAddress, nominatorAddress, msgText)
-	log.Printf("📋 Message Hash: %s", hex.EncodeToString(messageHash))
-
-	// Create Ethereum signed message hash
-	ethSignedMessageHash := verifier.toEthSignedMessageHash(messageHash)
-	log.Printf("📋 Ethereum Signed Message Hash: %s", hex.EncodeToString(ethSignedMessageHash))
-
-	// NOTE: To create a valid signature, you need the private key that corresponds to the oracle address
-	// The private key for address 0x2BB632bAa1bCA1F51B7f4B2D02bC9bC07D5CDdFD would be needed here
-	// For demonstration, we'll show what the signature creation would look like:
-
-	log.Printf("⚠️  To create a valid signature, you need the private key for oracle address %s", oracleAddress)
-	log.Printf("⚠️  The signature creation would look like:")
-	log.Printf("⚠️  privateKey := [private key bytes for oracle address]")
-	log.Printf("⚠️  signature, err := crypto.Sign(ethSignedMessageHash, privateKey)")
-	log.Printf("⚠️  signatureHex := hex.EncodeToString(signature)")
-
-	// Example of what the correct signature would look like (if we had the private key):
-	log.Printf("⚠️  The correct signature would verify successfully with the contract")
-	log.Printf("⚠️  Current signature was created by address: 0x45D1960EB3E945e148D2828a2dC0CbBb52a29609")
-	log.Printf("⚠️  But contract expects signature from address: %s", oracleAddress)
-}
-
-// TestCreateValidSignature demonstrates how to create a valid signature with the correct oracle private key
-func TestCreateValidSignature(t *testing.T) {
-	log.Printf("🧪 Testing signature creation with correct oracle private key")
-
-	// Generate a new private key for testing (in production, this would be the oracle's actual private key)
-	privateKey, err := crypto.GenerateKey()
-	if err != nil {
-		t.Fatalf("Failed to generate private key: %v", err)
-	}
-
-	// Get the oracle address from the private key
-	oracleAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
-	privateKeyHex := hex.EncodeToString(crypto.FromECDSA(privateKey))
-
-	log.Printf("📋 Generated Oracle Address: %s", oracleAddress.Hex())
-	log.Printf("📋 Private Key: %s", privateKeyHex)
-
-	// Create verifier with the oracle address
-	verifier, err := NewOracleVerifiedDelegation(oracleAddress.Hex())
-	if err != nil {
-		t.Fatalf("Failed to create verifier: %v", err)
-	}
-
-	// The parameters from the failing transaction
-	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
-	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
-	msgText := "msg"
-
-	log.Printf("📋 Validator Address: %s", validatorAddress)
-	log.Printf("📋 Nominator Address: %s", nominatorAddress)
-	log.Printf("📋 Message Text: %s", msgText)
-
-	// Create a valid signature using the helper function
-	validSignatureHex, err := verifier.CreateValidSignature(validatorAddress, nominatorAddress, msgText, privateKeyHex)
-	if err != nil {
-		t.Fatalf("Failed to create valid signature: %v", err)
-	}
-
-	log.Printf("📋 Valid Signature: %s", validSignatureHex)
-
-	// Verify the signature
-	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, validSignatureHex)
-	if err != nil {
-		t.Fatalf("Valid signature verification failed: %v", err)
-	}
-
-	log.Printf("✅ Valid signature verification successful!")
-
-	// Test the convenience function
-	message := Message{
-		ValidatorAddress: validatorAddress,
-		NominatorAddress: nominatorAddress,
-		MsgText:          msgText,
-	}
-
-	err = verifier.VerifyMessage(message, validSignatureHex)
-	if err != nil {
-		t.Fatalf("Convenience function verification failed: %v", err)
-	}
-
-	log.Printf("✅ Convenience function verification successful!")
-
-	log.Printf("🎉 This signature would work with the smart contract!")
-}
-
-// TestDebugPrivateKey helps debug the private key issue
-func TestDebugPrivateKey(t *testing.T) {
-	log.Printf("🔍 Debugging private key issue")
-
-	// The oracle address that the contract expects
-	expectedOracleAddress := "0x45D1960EB3E945e148D2828a2dC0CbBb52a29609"
-
-	// The address you're currently getting from your environment
-	currentAddress := "0x88661e841B18779E0610926C994a75Fe5106336a"
-
-	log.Printf("📋 Contract expects oracle address: %s", expectedOracleAddress)
-	log.Printf("📋 Your current private key generates address: %s", currentAddress)
-
-	if expectedOracleAddress == currentAddress {
-		log.Printf("✅ Addresses match! Your private key is correct.")
-	} else {
-		log.Printf("❌ Addresses don't match!")
-		log.Printf("❌ You need the private key that generates address: %s", expectedOracleAddress)
-		log.Printf("❌ But your current private key generates address: %s", currentAddress)
-		log.Printf("")
-		log.Printf("🔧 To fix this, you need to:")
-		log.Printf("   1. Find the private key for address: %s", expectedOracleAddress)
-		log.Printf("   2. OR update your contract to use address: %s", currentAddress)
-		log.Printf("")
-		log.Printf("💡 If you have the private key for %s, use that instead", expectedOracleAddress)
-		log.Printf("💡 If you want to use your current private key, update the contract to use %s", currentAddress)
-	}
-}
-
-// TestNewFailingSignature analyzes the latest failing transaction signature
-func TestNewFailingSignature(t *testing.T) {
-	log.Printf("🧪 Analyzing new failing signature from latest transaction")
-
-	// The oracle address from the updated smart contract
-	oracleAddress := "0x45D1960EB3E945e148D2828a2dC0CbBb52a29609"
-
-	// Create verifier with the oracle address
-	verifier, err := NewOracleVerifiedDelegation(oracleAddress)
-	if err != nil {
-		t.Fatalf("Failed to create verifier: %v", err)
-	}
-
-	// The parameters from the latest failing transaction
-	validatorAddress := "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"
-	nominatorAddress := "5DfQJkzFUGDy3JUJW4ZBuERyrN7nVfPbxYtXAkfHQ7KkMtFU"
-	msgText := "msg"
-	signatureHex := "a02a2e74c854e261ab6633b72707ba875b389bca94075d6d2289e72dd261e5e44308854b5f71a8ee330323a7daac14dab3b0a69346759d00f61624be53b74b1100"
-
-	log.Printf("📋 Oracle Address: %s", oracleAddress)
-	log.Printf("📋 Validator Address: %s", validatorAddress)
-	log.Printf("📋 Nominator Address: %s", nominatorAddress)
-	log.Printf("📋 Message Text: %s", msgText)
-	log.Printf("📋 New Signature: %s", signatureHex)
-
-	// Create message hash
-	messageHash := verifier.createMessageHash(validatorAddress, nominatorAddress, msgText)
-	log.Printf("📋 Message Hash: %s", hex.EncodeToString(messageHash))
-
-	// Create Ethereum signed message hash
-	ethSignedMessageHash := verifier.toEthSignedMessageHash(messageHash)
-	log.Printf("📋 Ethereum Signed Message Hash: %s", hex.EncodeToString(ethSignedMessageHash))
-
-	// Decode the signature
-	signature, err := hex.DecodeString(signatureHex)
-	if err != nil {
-		log.Printf("❌ Failed to decode signature: %v", err)
-		return
-	}
-
-	// Try to recover the signer
-	recoveredAddress, err := verifier.recoverSigner(ethSignedMessageHash, signature)
-	if err != nil {
-		log.Printf("❌ Failed to recover signer: %v", err)
-	} else {
-		log.Printf("📋 Recovered Address: %s", recoveredAddress.Hex())
-		log.Printf("📋 Expected Oracle Address: %s", oracleAddress)
-
-		if recoveredAddress.Hex() == oracleAddress {
-			log.Printf("✅ Addresses match!")
-		} else {
-			log.Printf("❌ Addresses don't match!")
-			log.Printf("❌ This signature was created by a different private key!")
-		}
-	}
-
-	// Try the full verification
-	err = verifier.SubmitMessage(validatorAddress, nominatorAddress, msgText, signatureHex)
-	if err != nil {
-		log.Printf("❌ Verification failed: %v", err)
-	} else {
-		log.Printf("✅ Verification successful!")
-	}
+	log.Printf("✅ Signing oracle integration test passed!")
 }

@@ -1,9 +1,12 @@
 package signingoracle
 
 import (
+	"encoding/hex"
 	"log"
 	"os"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 func TestNewSigningOracle(t *testing.T) {
@@ -110,4 +113,73 @@ func TestNewSigningOracle_MissingPrivateKey(t *testing.T) {
 	}
 
 	log.Printf("🎉 TestNewSigningOracle_MissingPrivateKey completed successfully")
+}
+
+// TestSignEthereumMessage tests the SignEthereumMessage method
+func TestSignEthereumMessage(t *testing.T) {
+	log.Printf("🧪 Starting TestSignEthereumMessage")
+
+	// Set up environment for testing
+	os.Setenv("PRIVATE_KEY", "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+	defer os.Unsetenv("PRIVATE_KEY")
+	defer os.Unsetenv("POLKADOT_RPC_URL")
+
+	// Create signing oracle
+	signingOracle, err := NewSigningOracle()
+	if err != nil {
+		t.Fatalf("Failed to create signing oracle: %v", err)
+	}
+
+	// Test message
+	testMessage := "Hello, Ethereum World!"
+	log.Printf("🔍 Testing Ethereum message signing with: %s", testMessage)
+
+	// Sign the message with Ethereum format
+	signature, err := signingOracle.SignEthereumMessage(testMessage)
+	if err != nil {
+		t.Fatalf("Failed to sign Ethereum message: %v", err)
+	}
+
+	log.Printf("✅ Ethereum message signed successfully")
+	log.Printf("📋 Signature: %s", signature)
+
+	// Verify the signature can be recovered correctly
+	// Create the message hash
+	msgHash := crypto.Keccak256Hash([]byte(testMessage))
+
+	// Create Ethereum signed message hash
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	data := append(prefix, msgHash.Bytes()...)
+	ethSignedMessageHash := crypto.Keccak256(data)
+
+	// Decode the signature
+	signatureBytes, err := hex.DecodeString(signature)
+	if err != nil {
+		t.Fatalf("Failed to decode signature: %v", err)
+	}
+
+	// Recover the signer
+	recoveredPubKey, err := crypto.Ecrecover(ethSignedMessageHash, signatureBytes)
+	if err != nil {
+		t.Fatalf("Failed to recover public key: %v", err)
+	}
+
+	// Convert to address
+	pubKey, err := crypto.UnmarshalPubkey(recoveredPubKey)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal public key: %v", err)
+	}
+	recoveredAddress := crypto.PubkeyToAddress(*pubKey)
+
+	expectedAddress := signingOracle.GetAddress()
+	if recoveredAddress.Hex() != expectedAddress {
+		t.Fatalf("Recovered address doesn't match: expected %s, got %s", expectedAddress, recoveredAddress.Hex())
+	}
+
+	log.Printf("✅ Signature verification successful")
+	log.Printf("📋 Recovered Address: %s", recoveredAddress.Hex())
+	log.Printf("📋 Expected Address: %s", expectedAddress)
+
+	log.Printf("🎉 TestSignEthereumMessage completed successfully")
 }

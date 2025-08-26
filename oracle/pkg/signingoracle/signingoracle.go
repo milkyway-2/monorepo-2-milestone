@@ -91,6 +91,27 @@ func (so *SigningOracle) SignMessage(msg string) (string, error) {
 	return hex.EncodeToString(signature), nil
 }
 
+// SignEthereumMessage signs the given message with Ethereum signed message format
+func (so *SigningOracle) SignEthereumMessage(msg string) (string, error) {
+	// Create the message hash
+	msgHash := crypto.Keccak256Hash([]byte(msg))
+
+	// Create Ethereum signed message hash
+	// Ethereum signed message prefix: "\x19Ethereum Signed Message:\n32"
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	data := append(prefix, msgHash.Bytes()...)
+	ethSignedMessageHash := crypto.Keccak256(data)
+
+	// Sign the Ethereum signed message hash
+	signature, err := crypto.Sign(ethSignedMessageHash, so.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign Ethereum message: %v", err)
+	}
+
+	// Return the signature as a hex string
+	return hex.EncodeToString(signature), nil
+}
+
 // GetVerifier returns the delegation verifier
 func (so *SigningOracle) GetVerifier() *delegation.Verifier {
 	return so.verifier
