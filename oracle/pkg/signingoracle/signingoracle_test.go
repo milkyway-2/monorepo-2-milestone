@@ -183,3 +183,97 @@ func TestSignEthereumMessage(t *testing.T) {
 
 	log.Printf("🎉 TestSignEthereumMessage completed successfully")
 }
+
+// TestSigningOracleImplementationCorrectness verifies the implementation is correct
+func TestSigningOracleImplementationCorrectness(t *testing.T) {
+	log.Printf("🧪 Testing SigningOracle Implementation Correctness")
+
+	// Test with a known private key and expected address
+	knownPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	expectedAddress := "0x1Be31A94361a391bBaFB2a4CCd704F57dc04d4bb"
+
+	os.Setenv("PRIVATE_KEY", knownPrivateKey)
+	os.Setenv("POLKADOT_RPC_URL", "https://rpc.polkadot.io")
+	defer os.Unsetenv("PRIVATE_KEY")
+	defer os.Unsetenv("POLKADOT_RPC_URL")
+
+	// Create signing oracle
+	signingOracle, err := NewSigningOracle()
+	if err != nil {
+		t.Fatalf("Failed to create signing oracle: %v", err)
+	}
+
+	// Verify address derivation
+	actualAddress := signingOracle.GetAddress()
+	if actualAddress != expectedAddress {
+		t.Fatalf("Address mismatch: expected %s, got %s", expectedAddress, actualAddress)
+	}
+	log.Printf("✅ Address derivation correct: %s", actualAddress)
+
+	// Verify private key consistency
+	actualPrivateKey := signingOracle.GetPrivateKeyHex()
+	if actualPrivateKey != knownPrivateKey {
+		t.Fatalf("Private key mismatch: expected %s, got %s", knownPrivateKey, actualPrivateKey)
+	}
+	log.Printf("✅ Private key consistency correct: %s", actualPrivateKey)
+
+	// Test message signing consistency
+	testMessage := "Hello, World!"
+	signature1, err := signingOracle.SignEthereumMessage(testMessage)
+	if err != nil {
+		t.Fatalf("Failed to sign message: %v", err)
+	}
+
+	// Create another instance with same private key
+	signingOracle2, err := NewSigningOracle()
+	if err != nil {
+		t.Fatalf("Failed to create second signing oracle: %v", err)
+	}
+
+	signature2, err := signingOracle2.SignEthereumMessage(testMessage)
+	if err != nil {
+		t.Fatalf("Failed to sign message with second oracle: %v", err)
+	}
+
+	// Signatures should be identical for same private key and message
+	if signature1 != signature2 {
+		t.Fatalf("Signature inconsistency: %s vs %s", signature1, signature2)
+	}
+	log.Printf("✅ Signature consistency correct: %s", signature1)
+
+	// Test address consistency between instances
+	address2 := signingOracle2.GetAddress()
+	if actualAddress != address2 {
+		t.Fatalf("Address inconsistency between instances: %s vs %s", actualAddress, address2)
+	}
+	log.Printf("✅ Address consistency between instances correct")
+
+	// Test signature verification
+	messageHash := crypto.Keccak256Hash([]byte(testMessage))
+	prefix := []byte("\x19Ethereum Signed Message:\n32")
+	data := append(prefix, messageHash.Bytes()...)
+	ethSignedMessageHash := crypto.Keccak256(data)
+
+	signatureBytes, err := hex.DecodeString(signature1)
+	if err != nil {
+		t.Fatalf("Failed to decode signature: %v", err)
+	}
+
+	recoveredPubKey, err := crypto.Ecrecover(ethSignedMessageHash, signatureBytes)
+	if err != nil {
+		t.Fatalf("Failed to recover public key: %v", err)
+	}
+
+	pubKey, err := crypto.UnmarshalPubkey(recoveredPubKey)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal public key: %v", err)
+	}
+
+	recoveredAddress := crypto.PubkeyToAddress(*pubKey)
+	if recoveredAddress.Hex() != expectedAddress {
+		t.Fatalf("Signature verification failed: expected %s, got %s", expectedAddress, recoveredAddress.Hex())
+	}
+	log.Printf("✅ Signature verification correct: %s", recoveredAddress.Hex())
+
+	log.Printf("🎉 SigningOracle implementation is correct!")
+}
