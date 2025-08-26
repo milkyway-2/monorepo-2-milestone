@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ethers } from 'ethers';
+import { getContractAddress, getNetworkName, CONTRACT_CONFIG } from '../config/contracts';
 
 interface ValidatorReport {
   validatorAddress: string;
@@ -262,19 +263,17 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
 
       // Determine network and contract address
       const finalChainId = await providerRequest('eth_chainId');
-      const WESTEND_ASSET_HUB_CHAIN_ID = '0x190f1b45'; // 420420421
-      const SEPOLIA_CHAIN_ID = '0xaa36a7';
       let contractAddress = '';
       let networkName = '';
       nativeSymbol = 'ETH';
 
-      if (finalChainId === WESTEND_ASSET_HUB_CHAIN_ID) {
-        contractAddress = '0x42245eAe30399974e89D9DE9602403F23e980993';
-        networkName = 'EVM';
+      if (finalChainId === CONTRACT_CONFIG.WESTEND_ASSET_HUB_CHAIN_ID) {
+        contractAddress = CONTRACT_CONFIG.WESTEND_ASSET_HUB_CONTRACT_ADDRESS;
+        networkName = getNetworkName(finalChainId);
         nativeSymbol = 'WND';
-      } else if (finalChainId === SEPOLIA_CHAIN_ID) {
-        contractAddress = '0x21F440BF2c87FF692F1c9B8eE08300ffb1c8D87A';
-        networkName = 'Sepolia';
+      } else if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
+        contractAddress = CONTRACT_CONFIG.SEPOLIA_CONTRACT_ADDRESS;
+        networkName = getNetworkName(finalChainId);
         nativeSymbol = 'ETH';
       } else {
         throw new Error('Unsupported EVM network. Please switch to a supported network.');
@@ -298,7 +297,7 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
           preflightError?.message ||
           'Contract call reverted during preflight check';
 
-        if (finalChainId === SEPOLIA_CHAIN_ID) {
+        if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
           // Abort on Sepolia if revert reason is present
           throw new Error(`Preflight failed: ${msg}`);
         } else {
@@ -312,7 +311,7 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         // @ts-ignore dynamic access
         gasLimit = await contract.estimateGas[methodName](...methodArgs);
       } catch (e) {
-        if (finalChainId === SEPOLIA_CHAIN_ID) {
+        if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
           throw new Error('Gas estimation failed. The contract may be reverting (e.g., Unauthorized).');
         }
         console.warn('estimateGas failed on this network, using default gas limit');

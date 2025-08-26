@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { WalletConnect } from '../components/WalletConnect';
+import { getContractAddress, CONTRACT_CONFIG } from '../config/contracts';
 
 // Polkadot Brand Colors
 const POLKADOT_COLORS = {
@@ -120,18 +121,9 @@ export const Messages: React.FC = () => {
     }
   ];
 
-  const getContractAddress = async (provider: ethers.providers.Web3Provider): Promise<string> => {
+  const getContractAddressFromProvider = async (provider: ethers.providers.Web3Provider): Promise<string> => {
     const chainId = await provider.send('eth_chainId', []);
-    const WESTEND_ASSET_HUB_CHAIN_ID = '0x190f1b45'; // 420420421
-    const SEPOLIA_CHAIN_ID = '0xaa36a7';
-
-    if (chainId === WESTEND_ASSET_HUB_CHAIN_ID) {
-      return '0x42245eAe30399974e89D9DE9602403F23e980993';
-    } else if (chainId === SEPOLIA_CHAIN_ID) {
-      return '0x21F440BF2c87FF692F1c9B8eE08300ffb1c8D87A';
-    } else {
-      throw new Error('Unsupported EVM network. Please switch to a supported network.');
-    }
+    return getContractAddress(chainId);
   };
 
   const getProvider = async (): Promise<ethers.providers.Web3Provider> => {
@@ -164,7 +156,7 @@ export const Messages: React.FC = () => {
 
     try {
       const provider = await getProvider();
-      const contractAddress = await getContractAddress(provider);
+      const contractAddress = await getContractAddressFromProvider(provider);
       const contract = new ethers.Contract(contractAddress, contractABI, provider);
 
       // Get total message count
