@@ -1,3 +1,22 @@
+#!/bin/bash
+
+echo "=== Generating Ethereum-compatible Key Pair ==="
+
+# Create keys directory if it doesn't exist
+mkdir -p keys
+
+# Generate private key
+echo "Generating private key..."
+openssl ecparam -name secp256k1 -genkey -noout -out keys/private.pem
+
+# Extract public key in uncompressed format
+echo "Extracting uncompressed public key..."
+PUB_UNCOMP_HEX=$(openssl ec -in keys/private.pem -pubout -outform DER | tail -c 65 | xxd -p -c 65)
+
+echo "Private key saved to: keys/private.pem"
+echo "Public key (uncompressed): $PUB_UNCOMP_HEX"
+echo ""
+
 echo "=== Ethereum Address (raw + checksum) ==="
 if ! ETH_INFO=$(
   PUB_UNCOMP_HEX="$PUB_UNCOMP_HEX" python3 - <<'PY'
@@ -44,3 +63,7 @@ ETH_CHECKSUM=$(echo "$ETH_INFO" | sed -n '2p')
 echo "Original:    $ETH_RAW"
 echo "Checksummed: $ETH_CHECKSUM"
 echo ""
+
+# Save the address to a file for easy access
+echo "$ETH_CHECKSUM" > keys/ethereum_address.txt
+echo "Ethereum address saved to: keys/ethereum_address.txt"
