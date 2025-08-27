@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ethers } from 'ethers';
+import { getContractAddress, getNetworkName, CONTRACT_CONFIG } from '../config/contracts';
 
 interface ValidatorReport {
   validatorAddress: string;
@@ -9,6 +10,7 @@ interface ValidatorReport {
 interface ValidatorReportProps {
   isWalletConnected: boolean;
   walletAddress: string | null;
+  walletType: 'metamask' | 'talisman' | null;
 }
 
 interface VerificationResult {
@@ -18,7 +20,7 @@ interface VerificationResult {
   fullResponse?: any;
 }
 
-export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnected, walletAddress }) => {
+export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnected, walletAddress, walletType }) => {
   const [report, setReport] = useState<ValidatorReport>({
     validatorAddress: '',
     message: '',
@@ -147,10 +149,6 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
     let nativeSymbol = 'ETH';
 
     try {
-      if (typeof window.ethereum === 'undefined') {
-        throw new Error('MetaMask is not installed. Please install MetaMask to use this feature.');
-      }
-
       // Contract ABI with needed methods and events
       const contractABI = [
         { inputs: [], stateMutability: 'nonpayable', type: 'constructor' },
@@ -230,55 +228,132 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         }
       ];
 
-      // Detect injected Ethereum providers (MetaMask, Talisman)
-      const injectedEthereum: any = (window as any).ethereum;
-      const talismanEth: any = (window as any).talismanEth;
-      const candidates = [injectedEthereum, talismanEth].filter(Boolean);
+      // Use the correct provider based on wallet type
       let rawProvider: any = null;
       let accounts: string[] = [];
 
-      for (const c of candidates) {
+      console.log('🔍 Setting up provider for wallet type:', walletType);
+
+      if (walletType === 'metamask') {
+        if (typeof window.ethereum === 'undefined') {
+          throw new Error('MetaMask is not installed. Please install MetaMask to use this feature.');
+        }
+        rawProvider = window.ethereum;
+        console.log('🔍 Requesting MetaMask accounts...');
+        accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        console.log('✅ MetaMask accounts received:', accounts);
+      } else if (walletType === 'talisman') {
+        // Use Talisman Connect SDK to get the provider
+        const { getWallets } = await import('@talismn/connect-wallets');
+        const installedWallets = getWallets().filter((wallet) => wallet.installed);
+        const talismanWallet = installedWallets.find(
+          (wallet) => wallet.extensionName === 'talisman',
+        );
+        
+        if (!talismanWallet) {
+          throw new Error('Talisman is not installed. Please install Talisman to use this feature.');
+        }
+        
+        console.log('🔍 Enabling Talisman wallet...');
+        // Ensure Talisman is enabled for this app
         try {
-          const req = c.request
-            ? (method: string, params?: any[]) => c.request({ method, params })
-            : (method: string, params?: any[]) => c.send(method, params ?? []);
-          const accs = await req('eth_requestAccounts');
-          if (Array.isArray(accs) && accs.length > 0) {
-            rawProvider = c;
-            accounts = accs;
-            break;
+          await talismanWallet.enable('Milkyway2 Portal');
+          console.log('✅ Talisman wallet enabled');
+        } catch (err) {
+          console.log('⚠️ Talisman already enabled or enabling failed:', err);
+        }
+        
+        // Get the EVM provider from Talisman
+        console.log('🔍 Getting Talisman accounts...');
+        const talismanAccounts = await talismanWallet.getAccounts();
+        console.log('✅ Talisman accounts:', talismanAccounts);
+        
+        if (talismanAccounts.length === 0) {
+          throw new Error('No accounts found in Talisman. Please add an account to your wallet.');
+        }
+        
+        // For Talisman, we need to use the EVM provider and request authorization
+        if (typeof window.ethereum !== 'undefined') {
+          rawProvider = window.ethereum;
+          console.log('🔍 Requesting EVM authorization for Talisman...');
+          // Request authorization for the specific account
+          try {
+            const authorizedAccounts = await window.ethereum.request({ 
+              method: 'eth_requestAccounts' 
+            });
+            console.log('✅ EVM authorization successful:', authorizedAccounts);
+            if (authorizedAccounts.length > 0) {
+              accounts = authorizedAccounts;
+            } else {
+              accounts = [talismanAccounts[0].address];
+            }
+          } catch (err) {
+            console.log('⚠️ EVM authorization request failed, using existing account:', err);
+            accounts = [talismanAccounts[0].address];
           }
-        } catch (_) {}
+        } else {
+          throw new Error('Talisman EVM provider not available.');
+        }
+      } else {
+        throw new Error('Unsupported wallet type. Please connect MetaMask or Talisman.');
       }
 
       if (!rawProvider || accounts.length === 0) {
         throw new Error('No EVM accounts available. Please connect MetaMask/Talisman (EVM) and approve access.');
       }
 
+      console.log('🔍 Creating provider with:', { 
+        walletType, 
+        rawProvider: rawProvider?.constructor?.name,
+        rawProviderType: typeof rawProvider,
+        accounts,
+        accountCount: accounts.length 
+      });
+      
       const provider = new ethers.providers.Web3Provider(rawProvider, 'any');
       const providerRequest = async (method: string, params?: any[]) => provider.send(method, params ?? []);
       const account = accounts[0];
       const signer = provider.getSigner(account);
+      
+      console.log('✅ Provider created successfully with account:', account);
+      console.log('🔍 Signer details:', {
+        signerType: signer.constructor?.name,
+        signerAddress: await signer.getAddress(),
+        providerNetwork: await provider.getNetwork(),
+      });
 
       // Determine network and contract address
       const finalChainId = await providerRequest('eth_chainId');
-      const WESTEND_ASSET_HUB_CHAIN_ID = '0x190f1b45'; // 420420421
-      const SEPOLIA_CHAIN_ID = '0xaa36a7';
+      console.log('🔍 Detected chain ID:', finalChainId);
+      
       let contractAddress = '';
       let networkName = '';
       nativeSymbol = 'ETH';
 
-      if (finalChainId === WESTEND_ASSET_HUB_CHAIN_ID) {
-        contractAddress = '0x42245eAe30399974e89D9DE9602403F23e980993';
-        networkName = 'EVM';
+      if (finalChainId === CONTRACT_CONFIG.WESTEND_ASSET_HUB_CHAIN_ID) {
+        contractAddress = CONTRACT_CONFIG.WESTEND_ASSET_HUB_CONTRACT_ADDRESS;
+        networkName = getNetworkName(finalChainId);
         nativeSymbol = 'WND';
-      } else if (finalChainId === SEPOLIA_CHAIN_ID) {
-        contractAddress = '0x21F440BF2c87FF692F1c9B8eE08300ffb1c8D87A';
-        networkName = 'Sepolia';
+      } else if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
+        contractAddress = CONTRACT_CONFIG.SEPOLIA_CONTRACT_ADDRESS;
+        networkName = getNetworkName(finalChainId);
         nativeSymbol = 'ETH';
+      } else if (finalChainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+        contractAddress = CONTRACT_CONFIG.PASEO_CONTRACT_ADDRESS;
+        networkName = getNetworkName(finalChainId);
+        nativeSymbol = 'PAS';
       } else {
         throw new Error('Unsupported EVM network. Please switch to a supported network.');
       }
+      
+      // Verify the wallet is on the correct network for the wallet type
+      if (walletType === 'metamask' && finalChainId !== CONTRACT_CONFIG.SEPOLIA_CHAIN_ID && finalChainId !== CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+        throw new Error(`MetaMask should be on Sepolia network (${CONTRACT_CONFIG.SEPOLIA_CHAIN_ID}) or Paseo network (${CONTRACT_CONFIG.PASEO_CHAIN_ID}), but is on ${finalChainId}. Please switch networks.`);
+      } else if (walletType === 'talisman' && finalChainId !== CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+        throw new Error(`Talisman should be on Paseo network (${CONTRACT_CONFIG.PASEO_CHAIN_ID}), but is on ${finalChainId}. Please switch networks.`);
+      }
+      
+      console.log('✅ Network verification passed:', { walletType, finalChainId, contractAddress, networkName });
 
       const contract = new ethers.Contract(contractAddress, contractABI, signer);
 
@@ -298,8 +373,11 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
           preflightError?.message ||
           'Contract call reverted during preflight check';
 
-        if (finalChainId === SEPOLIA_CHAIN_ID) {
+        if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
           // Abort on Sepolia if revert reason is present
+          throw new Error(`Preflight failed: ${msg}`);
+        } else if (finalChainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+          // Abort on Paseo if revert reason is present
           throw new Error(`Preflight failed: ${msg}`);
         } else {
           console.warn('Preflight eth_call failed on this network (continuing):', msg);
@@ -312,7 +390,9 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         // @ts-ignore dynamic access
         gasLimit = await contract.estimateGas[methodName](...methodArgs);
       } catch (e) {
-        if (finalChainId === SEPOLIA_CHAIN_ID) {
+        if (finalChainId === CONTRACT_CONFIG.SEPOLIA_CHAIN_ID) {
+          throw new Error('Gas estimation failed. The contract may be reverting (e.g., Unauthorized).');
+        } else if (finalChainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
           throw new Error('Gas estimation failed. The contract may be reverting (e.g., Unauthorized).');
         }
         console.warn('estimateGas failed on this network, using default gas limit');
@@ -328,7 +408,7 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         gasPrice = ethers.BigNumber.from(1);
       }
 
-      console.log('Submitting to smart contract via ethers:', {
+      console.log('🚀 Submitting to smart contract via ethers:', {
         contractAddress,
         method: methodName,
         args: methodArgs,
@@ -336,14 +416,19 @@ export const ValidatorReport: React.FC<ValidatorReportProps> = ({ isWalletConnec
         gasPrice: gasPrice?.toString(),
         network: networkName,
         chainId: finalChainId,
+        signerAddress: await signer.getAddress(),
       });
 
+      console.log('🔐 About to send transaction - this should trigger wallet signing popup...');
+      
       // Send transaction
       // @ts-ignore dynamic method access
       const txResponse = await contract[methodName](...methodArgs, { gasLimit, gasPrice });
-      console.log('Transaction sent:', txResponse.hash);
+      console.log('✅ Transaction sent successfully:', txResponse.hash);
+      
+      console.log('⏳ Waiting for transaction confirmation...');
       await txResponse.wait();
-      console.log('Transaction confirmed');
+      console.log('✅ Transaction confirmed on blockchain');
 
       setSubmitStatus('success');
       setReport({ validatorAddress: '', message: '' });

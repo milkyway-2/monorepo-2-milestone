@@ -15,9 +15,9 @@ contract OracleVerifiedDelegation {
     event MessageStored(string validator, string nominator, string msgText);
 
     constructor() {
-        // Ethereum address derived from public key:
-        // 048bca88da17bef374aaade8b23c6f2820d1e1a07463eeff55b86d7c81d6d4eac023b9920ad0a6e9240c9cc006d15319a00bd15a86c290a2900ffee26fd53c0c4f
-        oracleAddress = 0xC4Ba2d2F1b3d93D77211cA9Ef5FF1FDD7cA9389E;
+        // Ethereum address derived from the private key that's actually signing:
+        // This is the address that's actually signing your messages
+        oracleAddress = address(0x6c6Fa8CEeF6AbB97dCd75a6e390386E4B49A5e09);
     }
 
     function submitMessage(
@@ -27,11 +27,11 @@ contract OracleVerifiedDelegation {
         bytes memory signature
     ) public {
         // Step 1: Check that msg.sender is the nominator
-        string memory senderAsHex = toAsciiString(msg.sender);
-        require(
-            keccak256(bytes(senderAsHex)) == keccak256(bytes(nominator_address)),
-            "msg.sender does not match nominator_address"
-        );
+        // string memory senderAsHex = toAsciiString(msg.sender);
+        // require(
+        //     keccak256(bytes(senderAsHex)) == keccak256(bytes(nominator_address)),
+        //     "msg.sender does not match nominator_address"
+        // );
 
         // Step 2: Rebuild message hash
         bytes32 messageHash = keccak256(

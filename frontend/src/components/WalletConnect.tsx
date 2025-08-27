@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { web3Enable, web3Accounts } from '@polkadot/extension-dapp';
-import Web3 from 'web3';
 import BigNumber from 'bignumber.js';
+import { CONTRACT_CONFIG } from '../config/contracts';
+import { getWallets } from '@talismn/connect-wallets';
+import { Modal } from '@talismn/connect-ui';
 
 interface WalletState {
   isConnected: boolean;
   address: string | null;
   chainId: string | null;
   balance: string | null;
-  walletType: 'polkadot' | 'talisman' | 'metamask' | null;
+  walletType: 'metamask' | 'talisman' | null;
+  unsubscribe?: () => void;
 }
 
 interface WalletConnectProps {
-  onWalletStateChange?: (isConnected: boolean, address: string | null) => void;
+  onWalletStateChange?: (isConnected: boolean, address: string | null, walletType?: 'metamask' | 'talisman' | null) => void;
 }
 
 export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChange }) => {
@@ -25,13 +27,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
   });
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const WESTEND_NETWORK_NAME = 'Testnet';
-
-  useEffect(() => {
-    console.log('🔄 useEffect triggered - checking wallet connection on component mount');
-    checkWalletConnection();
-  }, []);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Call the callback whenever wallet state changes
   useEffect(() => {
@@ -43,17 +39,18 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     
     if (onWalletStateChange) {
       console.log('📞 Calling onWalletStateChange callback...');
-      onWalletStateChange(walletState.isConnected, walletState.address);
+      onWalletStateChange(walletState.isConnected, walletState.address, walletState.walletType);
     }
-  }, [walletState.isConnected, walletState.address, onWalletStateChange]);
+  }, [walletState.isConnected, walletState.address, walletState.walletType, onWalletStateChange]);
 
-  // EVM RPC + token decimals
-  const WESTEND_ASSET_HUB_RPC = 'https://westend-asset-hub-eth-rpc.polkadot.io';
-  const WND_DECIMALS = 12;
   // Sepolia (Ethereum testnet) RPC + token decimals
   const SEPOLIA_RPC = 'https://rpc.sepolia.org';
   const SEPOLIA_DECIMALS = 18;
   const SEPOLIA_CHAIN_ID = '0xaa36a7';
+  
+  // Paseo EVM RPC + token decimals
+  const PASEO_RPC = 'https://paseo-asset-hub-eth-rpc.polkadot.io';
+  const PASEO_DECIMALS = 18;
 
   // Fetch balance from an EVM RPC
   const fetchEvmBalance = async (address: string, rpcUrl: string, decimals: number): Promise<string | null> => {
@@ -87,98 +84,9 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     }
   };
 
-  const checkWalletConnection = async () => {
-    console.log('🔍 Starting wallet connection check...');
-    const startTime = Date.now();
-    
-    // Check MetaMask (EVM)
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        console.log('📡 Checking MetaMask connection...');
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-          console.log('✅ MetaMask connected with chainId:', chainId);
-          await updateWalletState(accounts[0], chainId, 'metamask');
-        }
-      } catch (err) {
-        console.error('❌ Error checking MetaMask connection:', err);
-      }
-    }
 
-    // Check Talisman (EVM mode)
-    console.log('🔍 Checking for Talisman wallet...');
-    console.log('📋 window.talisman:', typeof window.talisman);
-    console.log('📋 window.ethereum (Talisman):', typeof window.ethereum);
-    console.log('📋 window.talismanEth:', typeof (window as any).talismanEth);
-    
-    // Talisman can inject multiple objects
-    if (typeof window.talisman !== 'undefined') {
-      try {
-        console.log('📡 Checking Talisman EVM connection...');
-        const accounts = await window.talisman.getAccounts();
-        if (accounts.length > 0) {
-          console.log('✅ Talisman connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0].address, '0x190f1b45', 'talisman');
-        }
-      } catch (err) {
-        console.error('❌ Error checking Talisman connection:', err);
-      }
-    } else if (typeof window.ethereum !== 'undefined' && window.ethereum.isTalisman) {
-      try {
-        console.log('📡 Checking Talisman via ethereum object...');
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          console.log('✅ Talisman (via ethereum) connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-        }
-      } catch (err) {
-        console.error('❌ Error checking Talisman via ethereum:', err);
-      }
-    } else if (typeof (window as any).talismanEth !== 'undefined') {
-      try {
-        console.log('📡 Checking Talisman via talismanEth object...');
-        const accounts = await (window as any).talismanEth.send('eth_accounts');
-        if (accounts && accounts.length > 0) {
-          console.log('✅ Talisman (via talismanEth) connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-        }
-      } catch (err) {
-        console.error('❌ Error checking Talisman via talismanEth:', err);
-      }
-    }
 
-    // Check Polkadot Extension (for native Polkadot)
-    try {
-      console.log('📡 Attempting to enable Polkadot extensions...');
-      const extensions = await web3Enable('Validator Dashboard');
-      console.log('✅ Extensions enabled:', extensions.length, 'found');
-      console.log('📋 Extension names:', extensions.map(ext => ext.name));
-      
-      if (extensions.length > 0) {
-        console.log('🔍 Loading accounts from extensions...');
-        const accounts = await web3Accounts();
-        console.log('✅ Accounts loaded:', accounts.length, 'found');
-        
-        if (accounts.length > 0) {
-          console.log('📋 Account addresses:', accounts.map(acc => acc.address));
-          console.log('🔗 Updating wallet state with first account...');
-          await updateWalletState(accounts[0].address, 'westend', 'polkadot');
-        } else {
-          console.log('⚠️ No accounts found in extensions');
-        }
-      } else {
-        console.log('⚠️ No Polkadot extensions found');
-      }
-    } catch (err) {
-      console.error('❌ Error checking Polkadot extension connection:', err);
-    }
-    
-    const endTime = Date.now();
-    console.log(`⏱️ Wallet connection check completed in ${endTime - startTime}ms`);
-  };
-
-  const updateWalletState = async (address: string, chainId: string, walletType: 'polkadot' | 'talisman' | 'metamask') => {
+  const updateWalletState = async (address: string, chainId: string, walletType: 'metamask' | 'talisman') => {
     console.log('🔄 Starting wallet state update...');
     const startTime = Date.now();
     
@@ -198,18 +106,16 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
       (async () => {
         try {
           let fetchedBalance: string | null = null;
-          if ((walletType === 'talisman' || walletType === 'metamask') && address) {
-            if (chainId === '0x190f1b45') {
-              fetchedBalance = await Promise.race([
-                fetchEvmBalance(address, WESTEND_ASSET_HUB_RPC, WND_DECIMALS),
-                new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
-              ]);
-            } else if (chainId === SEPOLIA_CHAIN_ID) {
-              fetchedBalance = await Promise.race([
-                fetchEvmBalance(address, SEPOLIA_RPC, SEPOLIA_DECIMALS),
-                new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
-              ]);
-            }
+          if (walletType === 'metamask' && address && chainId === SEPOLIA_CHAIN_ID) {
+            fetchedBalance = await Promise.race([
+              fetchEvmBalance(address, SEPOLIA_RPC, SEPOLIA_DECIMALS),
+              new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
+            ]);
+          } else if (walletType === 'talisman' && address && chainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+            fetchedBalance = await Promise.race([
+              fetchEvmBalance(address, PASEO_RPC, PASEO_DECIMALS),
+              new Promise<string | null>(resolve => setTimeout(() => resolve(null), 4000)),
+            ]);
           }
 
           // Only update if the address/chainId are still current
@@ -234,72 +140,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
 
   
 
-  const connectMetaMask = async () => {
-    console.log('🚀 Starting MetaMask connection...');
-    const startTime = Date.now();
-    
-    setIsConnecting(true);
-    setError(null);
 
-    try {
-      if (typeof window.ethereum === 'undefined') {
-        setError('MetaMask is not installed. Please install MetaMask to use this feature.');
-        return;
-      }
-
-      console.log('📡 Requesting MetaMask accounts...');
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-      
-      console.log('✅ MetaMask connected with chainId:', chainId);
-      
-      // Check if we're on Westend Asset Hub
-      const WESTEND_ASSET_HUB_CHAIN_ID = '0x190f1b45'; // 420420421 in decimal
-      if (chainId !== WESTEND_ASSET_HUB_CHAIN_ID) {
-        console.log('🔄 Switching to Westend Asset Hub network...');
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: WESTEND_ASSET_HUB_CHAIN_ID }],
-          });
-        } catch (switchError: any) {
-          if (switchError.code === 4902) {
-            console.log('➕ Adding Westend Asset Hub network to MetaMask...');
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [
-                {
-                  chainId: WESTEND_ASSET_HUB_CHAIN_ID,
-                  chainName: 'Westend Asset Hub',
-                  nativeCurrency: {
-                    name: 'Westend Asset Hub Token',
-                    symbol: 'WND',
-                    decimals: 12,
-                  },
-                  rpcUrls: ['https://westend-asset-hub-eth-rpc.polkadot.io'],
-                  blockExplorerUrls: ['https://westend-assets.subscan.io'],
-                },
-              ],
-            });
-          } else {
-            throw switchError;
-          }
-        }
-      }
-
-      await updateWalletState(accounts[0], WESTEND_ASSET_HUB_CHAIN_ID, 'metamask');
-      const endTime = Date.now();
-      console.log(`⏱️ MetaMask connection completed in ${endTime - startTime}ms`);
-      
-    } catch (err: any) {
-      console.error('❌ Error connecting MetaMask:', err);
-      const errorTime = Date.now();
-      console.log(`⏱️ MetaMask connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect MetaMask');
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const connectSepolia = async () => {
     console.log('🚀 Starting MetaMask connection (Sepolia)...');
@@ -368,145 +209,128 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     }
   };
 
-  const connectTalisman = async () => {
-    console.log('🚀 Starting Talisman EVM connection...');
+  const connectPaseo = async () => {
+    console.log('🚀 Starting MetaMask connection (Paseo)...');
     const startTime = Date.now();
-    
     setIsConnecting(true);
     setError(null);
 
     try {
-      console.log('🔍 Checking Talisman availability...');
-      console.log('📋 window.talisman:', typeof window.talisman);
-      console.log('📋 window.ethereum.isTalisman:', window.ethereum?.isTalisman);
-      console.log('📋 window.talismanEth:', typeof (window as any).talismanEth);
-      
-      // Try Talisman-specific API first
-      if (typeof window.talisman !== 'undefined') {
-        console.log('📡 Using Talisman-specific API...');
-        const accounts = await window.talisman.getAccounts();
-        
-        if (accounts.length === 0) {
-          setError('No accounts found in Talisman. Please add an account to your wallet.');
-          return;
-        }
-
-        console.log('✅ Talisman connected with accounts:', accounts.length);
-        await updateWalletState(accounts[0].address, '0x190f1b45', 'talisman');
-        const endTime = Date.now();
-        console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
+      if (typeof window.ethereum === 'undefined') {
+        setError('MetaMask is not installed. Please install MetaMask to use this feature.');
         return;
       }
-      
-      // Try via ethereum object if Talisman injects there
-      if (typeof window.ethereum !== 'undefined' && window.ethereum.isTalisman) {
-        console.log('📡 Using Talisman via ethereum object...');
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        
-        if (accounts.length === 0) {
-          setError('No accounts found in Talisman. Please add an account to your wallet.');
-          return;
-        }
 
-        console.log('✅ Talisman (via ethereum) connected with accounts:', accounts.length);
-        await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-        const endTime = Date.now();
-        console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
-        return;
-      }
-      
-      // Try talismanEth object
-      if (typeof (window as any).talismanEth !== 'undefined') {
-        console.log('📡 Using Talisman via talismanEth object...');
-        const accounts = await (window as any).talismanEth.send('eth_requestAccounts');
-        
-        if (accounts && accounts.length > 0) {
-          console.log('✅ Talisman (via talismanEth) connected with accounts:', accounts.length);
-          await updateWalletState(accounts[0], '0x190f1b45', 'talisman');
-          const endTime = Date.now();
-          console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
-          return;
+      console.log('📡 Requesting MetaMask accounts...');
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      let currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+
+      if (currentChainId !== CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+        console.log('🔄 Switching to Paseo network...');
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: CONTRACT_CONFIG.PASEO_CHAIN_ID }],
+          });
+        } catch (switchError: any) {
+          if (switchError.code === 4902) {
+            console.log('➕ Adding Paseo to MetaMask...');
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [
+                {
+                  chainId: CONTRACT_CONFIG.PASEO_CHAIN_ID,
+                  chainName: 'Paseo',
+                  nativeCurrency: { name: 'Paseo PAS', symbol: 'PAS', decimals: 18 },
+                  rpcUrls: [PASEO_RPC],
+                  blockExplorerUrls: ['https://polkadot.js.org/apps/?rpc=wss://paseo-rpc.dwellir.com#/explorer'],
+                },
+              ],
+            });
+            // After adding, attempt switch again for reliability
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: CONTRACT_CONFIG.PASEO_CHAIN_ID }],
+            });
+          } else {
+            throw switchError;
+          }
+        }
+        // Re-read the chain after switch/add
+        currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+        if (currentChainId !== CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+          throw new Error('Failed to switch to Paseo. Please approve the network switch in your wallet.');
         }
       }
-      
-      // If neither method works
-      setError('Talisman is not installed or not detected. Please install Talisman to use this feature.');
-      
+
+      await updateWalletState(accounts[0], CONTRACT_CONFIG.PASEO_CHAIN_ID, 'metamask');
+      const endTime = Date.now();
+      console.log(`⏱️ MetaMask Paseo connection completed in ${endTime - startTime}ms`);
     } catch (err: any) {
-      console.error('❌ Error connecting Talisman:', err);
+      console.error('❌ Error connecting MetaMask (Paseo):', err);
       const errorTime = Date.now();
-      console.log(`⏱️ Talisman connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect Talisman');
+      console.log(`⏱️ MetaMask Paseo connection failed after ${errorTime - startTime}ms`);
+      setError(err.message || 'Failed to connect MetaMask (Paseo)');
     } finally {
       setIsConnecting(false);
     }
   };
 
-  const connectPolkadotExtension = async () => {
-    console.log('🚀 Starting Polkadot extension connection...');
-    const startTime = Date.now();
-    
-    setIsConnecting(true);
-    setError(null);
 
-    try {
-      console.log('🔗 Connecting Polkadot extension');
-      console.log('📡 Step 1: Enabling extensions...');
-      
-      // Trigger extension to request permissions
-      const extensions = await web3Enable('Validator Dashboard');
-      const enableTime = Date.now();
-      console.log(`⏱️ Extensions enabled in ${enableTime - startTime}ms`);
-      
-      if (extensions.length === 0) {
-        console.log('❌ No Polkadot extensions found');
-        setError('No Polkadot extension found. Please install the Polkadot.js extension.');
-        return;
-      }
 
-      console.log('✅ Polkadot extension detected:', extensions.map(ext => ext.name));
-      console.log('📡 Step 2: Loading accounts...');
 
-      // Load the available accounts injected by the extension
-      const accounts = await web3Accounts();
-      const accountsTime = Date.now();
-      console.log(`⏱️ Accounts loaded in ${accountsTime - enableTime}ms`);
-      
-      if (accounts.length === 0) {
-        console.log('❌ No accounts found in extension');
-        setError('No accounts found in Polkadot extension. Please add accounts to your extension.');
-        return;
-      }
 
-      console.log('📋 Found accounts in Polkadot extension:', accounts.map(acc => acc.address));
-      console.log('📡 Step 3: Updating wallet state...');
 
-      // Use the first account
-      await updateWalletState(accounts[0].address, 'westend', 'polkadot');
-      const updateTime = Date.now();
-      console.log(`⏱️ Wallet state updated in ${updateTime - accountsTime}ms`);
-      
-      console.log('✅ Successfully connected Polkadot extension');
-      console.log(`⏱️ Total connection time: ${updateTime - startTime}ms`);
-      
-    } catch (err: any) {
-      console.error('❌ Error connecting Polkadot extension:', err);
-      const errorTime = Date.now();
-      console.log(`⏱️ Connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect Polkadot extension');
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const disconnectWallet = () => {
+    // Call unsubscribe function if it exists
+    if (walletState.unsubscribe) {
+      walletState.unsubscribe();
+    }
+    
     setWalletState({
       isConnected: false,
       address: null,
       chainId: null,
       balance: null,
       walletType: null,
+      unsubscribe: undefined,
     });
+  };
+
+  // Handle wallet connection using @talismn/connect-wallets
+  const handleWalletConnect = async (wallet: any) => {
+    try {
+      console.log('🔗 Connecting to wallet:', wallet.title);
+      setIsConnecting(true);
+      setError(null);
+
+      // Enable the wallet
+      await wallet.enable('Milkyway2 Portal');
+      console.log('✅ Wallet enabled:', wallet.title);
+
+      // Subscribe to accounts
+      const unsubscribe = await wallet.subscribeAccounts((accounts: any[]) => {
+        if (accounts.length > 0) {
+          console.log('✅ Accounts received:', accounts);
+          
+          // Determine wallet type and chain ID
+          const walletType = wallet.extensionName === 'talisman' ? 'talisman' : 'metamask';
+          const chainId = walletType === 'talisman' ? CONTRACT_CONFIG.PASEO_CHAIN_ID : SEPOLIA_CHAIN_ID;
+          
+          updateWalletState(accounts[0].address, chainId, walletType);
+        }
+      });
+
+      // Store unsubscribe function for cleanup
+      setWalletState(prev => ({ ...prev, unsubscribe }));
+
+    } catch (err: any) {
+      console.error('❌ Error connecting wallet:', err);
+      setError(err.message || 'Failed to connect wallet');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const formatAddress = (address: string) => {
@@ -514,52 +338,30 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
   };
 
   const getNetworkName = () => {
-    if (walletState.walletType === 'metamask') {
-      if (walletState.chainId === '0x190f1b45') return 'EVM';
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'Sepolia (EVM)';
-      return 'EVM (Unknown)';
-    } else if (walletState.walletType === 'talisman') {
-      if (walletState.chainId === '0x190f1b45') return 'EVM';
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'Sepolia (EVM)';
-      return 'EVM (Unknown)';
-    } else if (walletState.walletType === 'polkadot') {
-      // Native Polkadot display
-      if (walletState.chainId === 'westend' || walletState.address?.startsWith('5')) {
-        return 'Polkadot (Native)';
-      }
-      return 'Polkadot';
+    if (walletState.walletType === 'metamask' && walletState.chainId === SEPOLIA_CHAIN_ID) {
+      return 'Sepolia (EVM)';
+    } else if (walletState.walletType === 'talisman' && walletState.chainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+      return 'Paseo (EVM)';
     }
     return 'Unknown';
   };
 
   const getBalanceUnit = () => {
-    if (walletState.walletType === 'metamask') {
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'ETH';
-      return 'WND';
-    } else if (walletState.walletType === 'talisman') {
-      if (walletState.chainId === SEPOLIA_CHAIN_ID) return 'ETH';
-      return 'WND';
-    } else if (walletState.walletType === 'polkadot') {
-      // Native Polkadot display
-      if (walletState.chainId === 'westend' || walletState.address?.startsWith('5')) {
-        return 'WND';
-      }
-      return 'DOT';
+    if (walletState.walletType === 'metamask' && walletState.chainId === SEPOLIA_CHAIN_ID) {
+      return 'ETH';
+    } else if (walletState.walletType === 'talisman' && walletState.chainId === CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+      return 'PAS';
     }
     return '';
   };
 
   const getWalletName = () => {
-    switch (walletState.walletType) {
-      case 'metamask':
-        return 'MetaMask';
-      case 'talisman':
-        return 'Talisman';
-      case 'polkadot':
-        return 'Polkadot Extension';
-      default:
-        return 'Unknown';
+    if (walletState.walletType === 'metamask') {
+      return 'MetaMask';
+    } else if (walletState.walletType === 'talisman') {
+      return 'Talisman';
     }
+    return 'Unknown';
   };
 
   return (
@@ -590,14 +392,14 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
           <p style={{ marginBottom: '1rem', color: '#666' }}>
             Connect your wallet to submit validator reports.
           </p>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(2, 1fr)', 
-            gap: '1rem',
-            maxWidth: '600px'
-          }}>
+          
+          {/* MetaMask Sepolia Button */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ marginBottom: '0.5rem', color: '#666', fontSize: '0.875rem' }}>
+              <strong>For Sepolia Network:</strong>
+            </p>
             <button
-              onClick={connectMetaMask}
+              onClick={connectSepolia}
               disabled={isConnecting}
               style={{
                 background: '#f6851b',
@@ -610,17 +412,52 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
                 fontWeight: '600',
                 opacity: isConnecting ? 0.6 : 1,
                 width: '100%',
+                maxWidth: '300px',
                 minHeight: '48px',
                 transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
               }}
             >
-              Connect MetaMask (EVM Westend)
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.49 2L13.54 8.27L15.09 4.68L21.49 2Z" fill="#E2761B" stroke="#E2761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2.51 2L10.36 8.39L8.91 4.68L2.51 2Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.82 16.52L16.91 19.59L21.09 20.82L22.49 16.68L18.82 16.52Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1.59 16.68L2.99 20.82L7.17 19.59L5.26 16.52L1.59 16.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L5.32 12.18L8.82 12.48L8.62 8.48L6.82 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M17.18 10.68L15.32 8.38L15.18 12.48L18.68 12.18L17.18 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.67 17.89L7.67 15.59L7.17 19.59Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.33 17.89L16.83 19.59L16.33 15.59L13.33 17.89Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.83 19.59L13.33 17.89L13.63 20.39L13.59 22.69L16.83 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.41 22.69L10.37 20.39L10.67 17.89L7.17 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10.47 14.68L7.47 13.88L9.87 13.18L10.47 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.53 14.68L14.13 13.18L16.53 13.88L13.53 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.77 16.52L5.26 16.68L7.17 19.59Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.23 16.52L16.83 19.59L18.74 16.68L16.23 16.52Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M5.32 12.18L8.82 12.48L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L8.82 10.68L5.32 12.18Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L8.82 12.48L8.82 10.68L6.82 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M15.18 10.68L17.18 12.48L15.18 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.67 15.59L7.17 19.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.33 15.59L16.83 19.59L16.33 15.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#F6851B" stroke="#F6851F" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Connect MetaMask (Sepolia)
             </button>
+          </div>
+
+          {/* MetaMask Paseo Button */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ marginBottom: '0.5rem', color: '#666', fontSize: '0.875rem' }}>
+              <strong>For Paseo Network (MetaMask):</strong>
+            </p>
             <button
-              onClick={connectSepolia}
+              onClick={connectPaseo}
               disabled={isConnecting}
               style={{
-                background: '#29b6f6',
+                background: '#f6851b',
                 color: 'white',
                 border: 'none',
                 padding: '0.75rem 1rem',
@@ -630,14 +467,49 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
                 fontWeight: '600',
                 opacity: isConnecting ? 0.6 : 1,
                 width: '100%',
+                maxWidth: '300px',
                 minHeight: '48px',
                 transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
               }}
             >
-              Connect MetaMask (Sepolia)
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.49 2L13.54 8.27L15.09 4.68L21.49 2Z" fill="#E2761B" stroke="#E2761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2.51 2L10.36 8.39L8.91 4.68L2.51 2Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.82 16.52L16.91 19.59L21.09 20.82L22.49 16.68L18.82 16.52Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1.59 16.68L2.99 20.82L7.17 19.59L5.26 16.52L1.59 16.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L5.32 12.18L8.82 12.48L8.62 8.48L6.82 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M17.18 10.68L15.32 8.38L15.18 12.48L18.68 12.18L17.18 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.67 17.89L7.67 15.59L7.17 19.59Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.33 17.89L16.83 19.59L16.33 15.59L13.33 17.89Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.83 19.59L13.33 17.89L13.63 20.39L13.59 22.69L16.83 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.41 22.69L10.37 20.39L10.67 17.89L7.17 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10.47 14.68L7.47 13.88L9.87 13.18L10.47 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.53 14.68L14.13 13.18L16.53 13.88L13.53 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.77 16.52L5.26 16.68L7.17 19.59Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.23 16.52L16.83 19.59L18.74 16.68L16.23 16.52Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M5.32 12.18L8.82 12.48L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L8.82 10.68L5.32 12.18Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L8.82 12.48L8.82 10.68L6.82 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M15.18 10.68L17.18 12.48L15.18 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.67 15.59L7.17 19.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.33 15.59L16.83 19.59L16.33 15.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#F6851B" stroke="#F6851F" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Connect MetaMask (Paseo)
             </button>
+          </div>
+          
+          {/* Wallet Selector for Paseo Network */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ marginBottom: '0.5rem', color: '#666', fontSize: '0.875rem' }}>
+              <strong>For Paseo Network (Talisman):</strong>
+            </p>
             <button
-              onClick={connectTalisman}
+              onClick={() => setIsModalOpen(true)}
               disabled={isConnecting}
               style={{
                 background: '#6366f1',
@@ -650,35 +522,26 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
                 fontWeight: '600',
                 opacity: isConnecting ? 0.6 : 1,
                 width: '100%',
+                maxWidth: '300px',
                 minHeight: '48px',
                 transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
               }}
             >
-              Connect Talisman (EVM Westend)
-            </button>
-            <button
-              onClick={connectPolkadotExtension}
-              disabled={isConnecting}
-              style={{
-                background: '#e6007a',
-                color: 'white',
-                border: 'none',
-                padding: '0.75rem 1rem',
-                borderRadius: '8px',
-                cursor: isConnecting ? 'not-allowed' : 'pointer',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                opacity: isConnecting ? 0.6 : 1,
-                width: '100%',
-                minHeight: '48px',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              Connect Polkadot (Native)
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Connect Talisman (Paseo)
             </button>
           </div>
+          
           <div style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#666' }}>
-            <p><strong>Note:</strong> MetaMask and Talisman can connect to supported EVM networks for smart contract interactions. Polkadot extension connects to native networks for validator data.</p>
+            <p><strong>Note:</strong> MetaMask on Sepolia/Paseo testnets and Talisman on Paseo are supported for smart contract interactions.</p>
           </div>
         </div>
       ) : (
@@ -715,6 +578,89 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
           </button>
         </div>
       )}
+
+      {/* Talisman Connect Modal */}
+      <Modal
+        title="Connect Wallet"
+        isOpen={isModalOpen}
+        handleClose={() => setIsModalOpen(false)}
+        appId="milkyway2-portal"
+      >
+        <div style={{ padding: '1rem' }}>
+          <h3 style={{ marginBottom: '1rem', color: '#333' }}>Select Wallet</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {getWallets()
+              .filter((wallet) => wallet.installed && wallet.extensionName === 'talisman')
+              .map((wallet) => (
+                <button
+                  key={wallet.extensionName}
+                  onClick={async () => {
+                    setIsModalOpen(false);
+                    await handleWalletConnect(wallet);
+                  }}
+                  disabled={isConnecting}
+                  style={{
+                    background: '#f8f9fa',
+                    color: '#333',
+                    border: '1px solid #dee2e6',
+                    padding: '1rem',
+                    borderRadius: '8px',
+                    cursor: isConnecting ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    opacity: isConnecting ? 0.6 : 1,
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    width: '100%',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isConnecting) {
+                      e.currentTarget.style.background = '#e9ecef';
+                      e.currentTarget.style.borderColor = '#adb5bd';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isConnecting) {
+                      e.currentTarget.style.background = '#f8f9fa';
+                      e.currentTarget.style.borderColor = '#dee2e6';
+                    }
+                  }}
+                >
+                  {wallet.logo && (
+                    <img 
+                      src={wallet.logo.src} 
+                      alt={wallet.title}
+                      style={{ width: '32px', height: '32px', borderRadius: '4px' }}
+                    />
+                  )}
+                  <div>
+                    <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>
+                      {wallet.title}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>
+                      {wallet.installed ? 'Installed' : 'Not installed'}
+                    </div>
+                  </div>
+                </button>
+              ))}
+          </div>
+          
+          {getWallets().filter((wallet) => wallet.extensionName === 'talisman').length === 0 && (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '2rem', 
+              color: '#6c757d',
+              fontSize: '0.875rem'
+            }}>
+              <p>No supported wallets found.</p>
+              <p>Please install Talisman wallet to connect.</p>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }; 
