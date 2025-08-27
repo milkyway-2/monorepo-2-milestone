@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import BigNumber from 'bignumber.js';
 import { CONTRACT_CONFIG } from '../config/contracts';
 import { getWallets } from '@talismn/connect-wallets';
+import { Modal } from '@talismn/connect-ui';
 
 interface WalletState {
   isConnected: boolean;
@@ -9,10 +10,11 @@ interface WalletState {
   chainId: string | null;
   balance: string | null;
   walletType: 'metamask' | 'talisman' | null;
+  unsubscribe?: () => void;
 }
 
 interface WalletConnectProps {
-  onWalletStateChange?: (isConnected: boolean, address: string | null) => void;
+  onWalletStateChange?: (isConnected: boolean, address: string | null, walletType?: 'metamask' | 'talisman' | null) => void;
 }
 
 export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChange }) => {
@@ -25,11 +27,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
   });
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    console.log('🔄 useEffect triggered - checking wallet connection on component mount');
-    checkWalletConnection();
-  }, []);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Call the callback whenever wallet state changes
   useEffect(() => {
@@ -41,9 +39,9 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     
     if (onWalletStateChange) {
       console.log('📞 Calling onWalletStateChange callback...');
-      onWalletStateChange(walletState.isConnected, walletState.address);
+      onWalletStateChange(walletState.isConnected, walletState.address, walletState.walletType);
     }
-  }, [walletState.isConnected, walletState.address, onWalletStateChange]);
+  }, [walletState.isConnected, walletState.address, walletState.walletType, onWalletStateChange]);
 
   // Sepolia (Ethereum testnet) RPC + token decimals
   const SEPOLIA_RPC = 'https://rpc.sepolia.org';
@@ -86,60 +84,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
     }
   };
 
-  const checkWalletConnection = async () => {
-    console.log('🔍 Starting wallet connection check...');
-    const startTime = Date.now();
-    
-    // Check MetaMask (EVM) - only for Sepolia
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        console.log('📡 Checking MetaMask connection...');
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-          console.log('✅ MetaMask connected with chainId:', chainId);
-          // Only connect if on Sepolia
-          if (chainId === SEPOLIA_CHAIN_ID) {
-            await updateWalletState(accounts[0], chainId, 'metamask');
-          }
-        }
-      } catch (err) {
-        console.error('❌ Error checking MetaMask connection:', err);
-      }
-    }
-    
-    // Check Talisman using official SDK
-    try {
-      console.log('🔍 Checking for Talisman wallet using official SDK...');
-      const installedWallets = getWallets().filter((wallet) => wallet.installed);
-      console.log('📋 Installed wallets:', installedWallets.map(w => w.extensionName));
-      
-      const talismanWallet = installedWallets.find(
-        (wallet) => wallet.extensionName === 'talisman',
-      );
-      
-      if (talismanWallet) {
-        console.log('✅ Talisman wallet found via SDK');
-        // Check if already enabled
-        try {
-          const accounts = await talismanWallet.getAccounts();
-          if (accounts.length > 0) {
-            console.log('✅ Talisman already connected with accounts:', accounts.length);
-            await updateWalletState(accounts[0].address, CONTRACT_CONFIG.PASEO_CHAIN_ID, 'talisman');
-          }
-        } catch (err) {
-          console.log('📋 Talisman not yet enabled, will enable on connect');
-        }
-      } else {
-        console.log('❌ Talisman wallet not found via SDK');
-      }
-    } catch (err) {
-      console.error('❌ Error checking Talisman via SDK:', err);
-    }
-    
-    const endTime = Date.now();
-    console.log(`⏱️ Wallet connection check completed in ${endTime - startTime}ms`);
-  };
+
 
   const updateWalletState = async (address: string, chainId: string, walletType: 'metamask' | 'talisman') => {
     console.log('🔄 Starting wallet state update...');
@@ -265,53 +210,67 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
   };
 
   const connectPaseo = async () => {
-    console.log('🚀 Starting Talisman connection (Paseo)...');
+    console.log('🚀 Starting MetaMask connection (Paseo)...');
     const startTime = Date.now();
     setIsConnecting(true);
     setError(null);
 
     try {
-      console.log('🔍 Using Talisman Connect SDK...');
-      
-      // Get installed wallets
-      const installedWallets = getWallets().filter((wallet) => wallet.installed);
-      console.log('📋 Installed wallets:', installedWallets.map(w => w.extensionName));
-      
-      // Find Talisman wallet
-      const talismanWallet = installedWallets.find(
-        (wallet) => wallet.extensionName === 'talisman',
-      );
-      
-      if (!talismanWallet) {
-        setError('Talisman is not installed. Please install Talisman to use this feature.');
+      if (typeof window.ethereum === 'undefined') {
+        setError('MetaMask is not installed. Please install MetaMask to use this feature.');
         return;
       }
 
-      console.log('✅ Talisman wallet found, enabling...');
-      
-      // Enable the wallet
-      await talismanWallet.enable('Milkyway2 Portal');
-      console.log('✅ Talisman wallet enabled');
-      
-      // Get accounts
-      const accounts = await talismanWallet.getAccounts();
-      
-      if (accounts.length === 0) {
-        setError('No accounts found in Talisman. Please add an account to your wallet.');
-        return;
+      console.log('📡 Requesting MetaMask accounts...');
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      let currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+
+      if (currentChainId !== CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+        console.log('🔄 Switching to Paseo network...');
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: CONTRACT_CONFIG.PASEO_CHAIN_ID }],
+          });
+        } catch (switchError: any) {
+          if (switchError.code === 4902) {
+            console.log('➕ Adding Paseo to MetaMask...');
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [
+                {
+                  chainId: CONTRACT_CONFIG.PASEO_CHAIN_ID,
+                  chainName: 'Paseo',
+                  nativeCurrency: { name: 'Paseo PAS', symbol: 'PAS', decimals: 18 },
+                  rpcUrls: [PASEO_RPC],
+                  blockExplorerUrls: ['https://polkadot.js.org/apps/?rpc=wss://paseo-rpc.dwellir.com#/explorer'],
+                },
+              ],
+            });
+            // After adding, attempt switch again for reliability
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: CONTRACT_CONFIG.PASEO_CHAIN_ID }],
+            });
+          } else {
+            throw switchError;
+          }
+        }
+        // Re-read the chain after switch/add
+        currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+        if (currentChainId !== CONTRACT_CONFIG.PASEO_CHAIN_ID) {
+          throw new Error('Failed to switch to Paseo. Please approve the network switch in your wallet.');
+        }
       }
 
-      console.log('✅ Talisman connected with accounts:', accounts.length);
-      await updateWalletState(accounts[0].address, CONTRACT_CONFIG.PASEO_CHAIN_ID, 'talisman');
-      
+      await updateWalletState(accounts[0], CONTRACT_CONFIG.PASEO_CHAIN_ID, 'metamask');
       const endTime = Date.now();
-      console.log(`⏱️ Talisman connection completed in ${endTime - startTime}ms`);
-      
+      console.log(`⏱️ MetaMask Paseo connection completed in ${endTime - startTime}ms`);
     } catch (err: any) {
-      console.error('❌ Error connecting Talisman:', err);
+      console.error('❌ Error connecting MetaMask (Paseo):', err);
       const errorTime = Date.now();
-      console.log(`⏱️ Talisman connection failed after ${errorTime - startTime}ms`);
-      setError(err.message || 'Failed to connect Talisman (Paseo)');
+      console.log(`⏱️ MetaMask Paseo connection failed after ${errorTime - startTime}ms`);
+      setError(err.message || 'Failed to connect MetaMask (Paseo)');
     } finally {
       setIsConnecting(false);
     }
@@ -321,14 +280,57 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
 
 
 
+
+
   const disconnectWallet = () => {
+    // Call unsubscribe function if it exists
+    if (walletState.unsubscribe) {
+      walletState.unsubscribe();
+    }
+    
     setWalletState({
       isConnected: false,
       address: null,
       chainId: null,
       balance: null,
       walletType: null,
+      unsubscribe: undefined,
     });
+  };
+
+  // Handle wallet connection using @talismn/connect-wallets
+  const handleWalletConnect = async (wallet: any) => {
+    try {
+      console.log('🔗 Connecting to wallet:', wallet.title);
+      setIsConnecting(true);
+      setError(null);
+
+      // Enable the wallet
+      await wallet.enable('Milkyway2 Portal');
+      console.log('✅ Wallet enabled:', wallet.title);
+
+      // Subscribe to accounts
+      const unsubscribe = await wallet.subscribeAccounts((accounts: any[]) => {
+        if (accounts.length > 0) {
+          console.log('✅ Accounts received:', accounts);
+          
+          // Determine wallet type and chain ID
+          const walletType = wallet.extensionName === 'talisman' ? 'talisman' : 'metamask';
+          const chainId = walletType === 'talisman' ? CONTRACT_CONFIG.PASEO_CHAIN_ID : SEPOLIA_CHAIN_ID;
+          
+          updateWalletState(accounts[0].address, chainId, walletType);
+        }
+      });
+
+      // Store unsubscribe function for cleanup
+      setWalletState(prev => ({ ...prev, unsubscribe }));
+
+    } catch (err: any) {
+      console.error('❌ Error connecting wallet:', err);
+      setError(err.message || 'Failed to connect wallet');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const formatAddress = (address: string) => {
@@ -390,17 +392,17 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
           <p style={{ marginBottom: '1rem', color: '#666' }}>
             Connect your wallet to submit validator reports.
           </p>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(2, 1fr)', 
-            gap: '1rem',
-            maxWidth: '600px'
-          }}>
+          
+          {/* MetaMask Sepolia Button */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ marginBottom: '0.5rem', color: '#666', fontSize: '0.875rem' }}>
+              <strong>For Sepolia Network:</strong>
+            </p>
             <button
               onClick={connectSepolia}
               disabled={isConnecting}
               style={{
-                background: '#29b6f6',
+                background: '#f6851b',
                 color: 'white',
                 border: 'none',
                 padding: '0.75rem 1rem',
@@ -410,14 +412,104 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
                 fontWeight: '600',
                 opacity: isConnecting ? 0.6 : 1,
                 width: '100%',
+                maxWidth: '300px',
                 minHeight: '48px',
                 transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
               }}
             >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.49 2L13.54 8.27L15.09 4.68L21.49 2Z" fill="#E2761B" stroke="#E2761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2.51 2L10.36 8.39L8.91 4.68L2.51 2Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.82 16.52L16.91 19.59L21.09 20.82L22.49 16.68L18.82 16.52Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1.59 16.68L2.99 20.82L7.17 19.59L5.26 16.52L1.59 16.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L5.32 12.18L8.82 12.48L8.62 8.48L6.82 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M17.18 10.68L15.32 8.38L15.18 12.48L18.68 12.18L17.18 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.67 17.89L7.67 15.59L7.17 19.59Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.33 17.89L16.83 19.59L16.33 15.59L13.33 17.89Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.83 19.59L13.33 17.89L13.63 20.39L13.59 22.69L16.83 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.41 22.69L10.37 20.39L10.67 17.89L7.17 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10.47 14.68L7.47 13.88L9.87 13.18L10.47 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.53 14.68L14.13 13.18L16.53 13.88L13.53 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.77 16.52L5.26 16.68L7.17 19.59Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.23 16.52L16.83 19.59L18.74 16.68L16.23 16.52Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M5.32 12.18L8.82 12.48L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L8.82 10.68L5.32 12.18Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L8.82 12.48L8.82 10.68L6.82 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M15.18 10.68L17.18 12.48L15.18 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.67 15.59L7.17 19.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.33 15.59L16.83 19.59L16.33 15.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#F6851B" stroke="#F6851F" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
               Connect MetaMask (Sepolia)
             </button>
+          </div>
+
+          {/* MetaMask Paseo Button */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ marginBottom: '0.5rem', color: '#666', fontSize: '0.875rem' }}>
+              <strong>For Paseo Network (MetaMask):</strong>
+            </p>
             <button
               onClick={connectPaseo}
+              disabled={isConnecting}
+              style={{
+                background: '#f6851b',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1rem',
+                borderRadius: '8px',
+                cursor: isConnecting ? 'not-allowed' : 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: '600',
+                opacity: isConnecting ? 0.6 : 1,
+                width: '100%',
+                maxWidth: '300px',
+                minHeight: '48px',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+              }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.49 2L13.54 8.27L15.09 4.68L21.49 2Z" fill="#E2761B" stroke="#E2761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2.51 2L10.36 8.39L8.91 4.68L2.51 2Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.82 16.52L16.91 19.59L21.09 20.82L22.49 16.68L18.82 16.52Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1.59 16.68L2.99 20.82L7.17 19.59L5.26 16.52L1.59 16.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L5.32 12.18L8.82 12.48L8.62 8.48L6.82 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M17.18 10.68L15.32 8.38L15.18 12.48L18.68 12.18L17.18 10.68Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.67 17.89L7.67 15.59L7.17 19.59Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.33 17.89L16.83 19.59L16.33 15.59L13.33 17.89Z" fill="#E4761B" stroke="#E4761B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.83 19.59L13.33 17.89L13.63 20.39L13.59 22.69L16.83 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L10.41 22.69L10.37 20.39L10.67 17.89L7.17 19.59Z" fill="#D05C15" stroke="#D05C15" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10.47 14.68L7.47 13.88L9.87 13.18L10.47 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.53 14.68L14.13 13.18L16.53 13.88L13.53 14.68Z" fill="#233447" stroke="#233447" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.77 16.52L5.26 16.68L7.17 19.59Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.23 16.52L16.83 19.59L18.74 16.68L16.23 16.52Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#CD6116" stroke="#CD6116" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M5.32 12.18L8.82 12.48L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L8.82 10.68L5.32 12.18Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.82 10.68L8.82 12.48L8.82 10.68L6.82 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M15.18 10.68L17.18 12.48L15.18 10.68Z" fill="#F6851B" stroke="#F6851B" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7.17 19.59L7.67 15.59L7.17 19.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.33 15.59L16.83 19.59L16.33 15.59Z" fill="#E4751F" stroke="#E4751F" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18.68 12.18L15.18 12.48L13.53 14.68L10.47 14.68L8.82 12.48L5.32 12.18L8.82 10.68L11.82 12.18L12.02 12.18L15.02 10.68L18.68 12.18Z" fill="#F6851B" stroke="#F6851F" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Connect MetaMask (Paseo)
+            </button>
+          </div>
+          
+          {/* Wallet Selector for Paseo Network */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ marginBottom: '0.5rem', color: '#666', fontSize: '0.875rem' }}>
+              <strong>For Paseo Network (Talisman):</strong>
+            </p>
+            <button
+              onClick={() => setIsModalOpen(true)}
               disabled={isConnecting}
               style={{
                 background: '#6366f1',
@@ -430,15 +522,26 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
                 fontWeight: '600',
                 opacity: isConnecting ? 0.6 : 1,
                 width: '100%',
+                maxWidth: '300px',
                 minHeight: '48px',
                 transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
               }}
             >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
               Connect Talisman (Paseo)
             </button>
           </div>
+          
           <div style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#666' }}>
-            <p><strong>Note:</strong> MetaMask on Sepolia testnet and Talisman on Paseo are supported for smart contract interactions.</p>
+            <p><strong>Note:</strong> MetaMask on Sepolia/Paseo testnets and Talisman on Paseo are supported for smart contract interactions.</p>
           </div>
         </div>
       ) : (
@@ -475,6 +578,89 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onWalletStateChang
           </button>
         </div>
       )}
+
+      {/* Talisman Connect Modal */}
+      <Modal
+        title="Connect Wallet"
+        isOpen={isModalOpen}
+        handleClose={() => setIsModalOpen(false)}
+        appId="milkyway2-portal"
+      >
+        <div style={{ padding: '1rem' }}>
+          <h3 style={{ marginBottom: '1rem', color: '#333' }}>Select Wallet</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {getWallets()
+              .filter((wallet) => wallet.installed && wallet.extensionName === 'talisman')
+              .map((wallet) => (
+                <button
+                  key={wallet.extensionName}
+                  onClick={async () => {
+                    setIsModalOpen(false);
+                    await handleWalletConnect(wallet);
+                  }}
+                  disabled={isConnecting}
+                  style={{
+                    background: '#f8f9fa',
+                    color: '#333',
+                    border: '1px solid #dee2e6',
+                    padding: '1rem',
+                    borderRadius: '8px',
+                    cursor: isConnecting ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    opacity: isConnecting ? 0.6 : 1,
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    width: '100%',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isConnecting) {
+                      e.currentTarget.style.background = '#e9ecef';
+                      e.currentTarget.style.borderColor = '#adb5bd';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isConnecting) {
+                      e.currentTarget.style.background = '#f8f9fa';
+                      e.currentTarget.style.borderColor = '#dee2e6';
+                    }
+                  }}
+                >
+                  {wallet.logo && (
+                    <img 
+                      src={wallet.logo.src} 
+                      alt={wallet.title}
+                      style={{ width: '32px', height: '32px', borderRadius: '4px' }}
+                    />
+                  )}
+                  <div>
+                    <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>
+                      {wallet.title}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>
+                      {wallet.installed ? 'Installed' : 'Not installed'}
+                    </div>
+                  </div>
+                </button>
+              ))}
+          </div>
+          
+          {getWallets().filter((wallet) => wallet.extensionName === 'talisman').length === 0 && (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '2rem', 
+              color: '#6c757d',
+              fontSize: '0.875rem'
+            }}>
+              <p>No supported wallets found.</p>
+              <p>Please install Talisman wallet to connect.</p>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }; 

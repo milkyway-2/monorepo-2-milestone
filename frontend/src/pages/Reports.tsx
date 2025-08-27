@@ -6,12 +6,13 @@ export const Reports: React.FC = () => {
   const [walletState, setWalletState] = useState({
     isConnected: false,
     address: null as string | null,
+    walletType: null as 'metamask' | 'talisman' | null,
   });
 
   // This callback will be called by WalletConnect when the wallet state changes
-  const handleWalletStateChange = useCallback((isConnected: boolean, address: string | null) => {
-    console.log('Wallet state changed:', { isConnected, address });
-    setWalletState({ isConnected, address });
+  const handleWalletStateChange = useCallback((isConnected: boolean, address: string | null, walletType?: 'metamask' | 'talisman' | null) => {
+    console.log('Wallet state changed:', { isConnected, address, walletType });
+    setWalletState({ isConnected, address, walletType: walletType || null });
   }, []);
 
   return (
@@ -33,6 +34,7 @@ export const Reports: React.FC = () => {
       <ValidatorReport 
         isWalletConnected={walletState.isConnected}
         walletAddress={walletState.address}
+        walletType={walletState.walletType}
       />
 
       <div style={{ 

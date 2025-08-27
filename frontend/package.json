@@ -7,6 +7,8 @@
     "@polkadot/api": "^16.4.3",
     "@polkadot/extension-dapp": "^0.46.5",
     "@polkadot/rpc-provider": "^16.4.3",
+    "@talismn/connect-components": "^1.1.9",
+    "@talismn/connect-ui": "^1.1.4",
     "@talismn/connect-wallets": "^1.2.8",
     "@web3-react/abstract-connector": "^6.0.7",
     "@web3-react/core": "^8.2.3",

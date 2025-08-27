@@ -8,7 +8,7 @@ export const CONTRACT_CONFIG = {
   // Chain IDs
   WESTEND_ASSET_HUB_CHAIN_ID: '0x190f1b45', // 420420421
   SEPOLIA_CHAIN_ID: '0xaa36a7',
-  PASEO_CHAIN_ID: '0x1b4', // TODO: Verify this is the correct Paseo EVM chain ID
+  PASEO_CHAIN_ID: '0x190f1b46', // Paseo EVM chain ID 420420422
   
   // Oracle address for smart contract verification
   ORACLE_ADDRESS: '0x6c6Fa8CEeF6AbB97dCd75a6e390386E4B49A5e09',
