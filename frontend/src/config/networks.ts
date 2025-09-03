@@ -103,13 +103,11 @@ export const NetworkList = {
     name: 'paseo',
     endpoints: {
       rpc: {
-        'Parity': 'wss://rpc.paseo.polkadot.io',
-        'Dwellir': 'wss://paseo-rpc.dwellir.com',
-        'IBP-GeoDNS1': 'wss://rpc.ibp.network/paseo',
-        'IBP-GeoDNS2': 'wss://rpc.dotters.network/paseo',
-        'LuckyFriday': 'wss://rpc-paseo.luckyfriday.io',
-        'OnFinality': 'wss://paseo.api.onfinality.io/public-ws',
-        'Stakeworld': 'wss://paseo-rpc.stakeworld.io',
+        'Asset Hub Dotters': 'wss://asset-hub-paseo.dotters.network',
+        'Asset Hub Dwellir': 'wss://asset-hub-paseo-rpc.n.dwellir.com',
+        'Asset Hub IBP': 'wss://sys.ibp.network/asset-hub-paseo',
+        'Asset Hub Stakeworld': 'wss://pas-rpc.stakeworld.io/assethub',
+        'Asset Hub Turboflakes': 'wss://sys.turboflakes.io/asset-hub-paseo',
       },
     },
     unit: 'PAS',
@@ -132,7 +130,6 @@ export const getRandomRpcEndpoint = (network: NetworkId): string => {
   if (!networkConfig) {
     throw new Error(`Network ${network} not supported`);
   }
-  
   const endpoints = Object.values(networkConfig.endpoints.rpc);
   const randomIndex = Math.floor(Math.random() * endpoints.length);
   return endpoints[randomIndex] as string;
@@ -144,6 +141,5 @@ export const getRpcEndpoints = (network: NetworkId): Record<string, string> => {
   if (!networkConfig) {
     throw new Error(`Network ${network} not supported`);
   }
-  
   return networkConfig.endpoints.rpc;
-}; 
+};

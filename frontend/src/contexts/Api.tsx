@@ -39,6 +39,15 @@ interface ApiProviderProps {
   children: ReactNode;
 }
 
+// Updated Paseo Asset Hub RPC endpoints 
+const PaseoAssetHubEndpoints = [
+  'wss://asset-hub-paseo.dotters.network',
+  'wss://asset-hub-paseo-rpc.n.dwellir.com',
+  'wss://sys.ibp.network/asset-hub-paseo',
+  'wss://pas-rpc.stakeworld.io/assethub',
+  'wss://sys.turboflakes.io/asset-hub-paseo',
+];
+
 export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
   const [api, setApi] = useState<ApiPromise | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -59,34 +68,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
     const connectToNetwork = async () => {
       try {
         setError(null);
-        
-        // Get a random RPC endpoint for the network
-        const endpoint = getRandomRpcEndpoint(network);
+
+        // Use Asset Hub Paseo endpoints exclusively for Paseo network
+        const endpoint = network === 'paseo'
+          ? PaseoAssetHubEndpoints[Math.floor(Math.random() * PaseoAssetHubEndpoints.length)]
+          : getRandomRpcEndpoint(network);
         setRpcEndpoint(endpoint);
-        
+
         console.log(`🔗 Connecting to ${network} via ${endpoint}`);
-        
-        // Connect to the network
+
         const wsProvider = new WsProvider(endpoint);
         const apiInstance = await ApiPromise.create({ provider: wsProvider });
-        
+
         setApi(apiInstance);
-        
-        // Wait for API to be ready
+
         await apiInstance.isReady;
         setIsReady(true);
-        
-        // Fetch staking metrics
+
         try {
+          // Fetch staking metrics
           const [validators, currentEra] = await Promise.all([
             apiInstance.query.staking.validators.entries(),
             apiInstance.query.staking.currentEra(),
           ]);
-          
+
           const validatorCount = validators.length;
           let maxValidatorsCount = 1000; // Default fallback
-          
-          // Try to get max validators count
+
           try {
             if (apiInstance.consts.staking && apiInstance.consts.staking.maxValidatorsCount) {
               const maxValidators = apiInstance.consts.staking.maxValidatorsCount;
@@ -97,23 +105,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
           } catch (err) {
             console.log('Could not get max validators count, using default:', err);
           }
-          
+
           setStakingMetrics({
             counterForValidators: validatorCount,
             maxValidatorsCount,
             validatorCount,
           });
-          
+
           console.log(`✅ Connected to ${network}`);
           console.log(`📊 Total validators: ${validatorCount}`);
           console.log(`📊 Max validators: ${maxValidatorsCount}`);
           console.log(`🏛️  Current era: ${currentEra.toString()}`);
-          
+
         } catch (err) {
           console.error('Failed to fetch staking metrics:', err);
           setError(err instanceof Error ? err.message : 'Failed to fetch network data');
         }
-        
+
       } catch (err) {
         console.error(`Failed to connect to ${network}:`, err);
         setError(err instanceof Error ? err.message : `Failed to connect to ${network}`);
@@ -123,7 +131,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
 
     connectToNetwork();
 
-    // Cleanup on unmount or network change
     return () => {
       if (api) {
         api.disconnect();
@@ -142,4 +149,4 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
   };
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
-}; 
+};
